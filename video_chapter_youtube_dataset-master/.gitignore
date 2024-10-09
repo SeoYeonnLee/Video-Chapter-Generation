@@ -1,0 +1,17 @@
+*.pyc
+.DS_Store
+.idea
+*.log
+.vscode
+*.pyc
+__pycache__
+
+
+*.mp4
+*.log
+*.srt
+*.json
+*.csv
+*.zip
+*.tar
+dataset/
