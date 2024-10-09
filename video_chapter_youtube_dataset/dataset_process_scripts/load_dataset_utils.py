@@ -74,8 +74,30 @@ def clean_str(s):
     return s[start_idx : end_idx]
 
 
-
 def parse_csv_to_list(csv_file, w_duration=True):
+    try:
+        # 문제 있는 행 무시, Python 엔진 사용
+        data = pd.read_csv(csv_file, on_bad_lines='skip', engine='python', encoding='utf-8', sep=',')
+    except Exception as e:
+        print(f"Error reading {csv_file}: {e}")
+        return [], [], [], [] if w_duration else []
+
+    vids = list(data["videoId"].values)
+    titles = list(data["title"].values)
+
+    if w_duration and 'duration' in data.columns:
+        durations = list(data["duration"].values)
+    else:
+        durations = []
+
+    timestamps = list(data["timestamp"].values)
+    timestamps = [x.split(TIMESTAMP_DELIMITER) if isinstance(x, str) else [] for x in timestamps]
+
+    if w_duration:
+        return vids, titles, durations, timestamps
+    else:
+        return vids, titles, timestamps
+'''def parse_csv_to_list(csv_file, w_duration=True):
     data = pd.read_csv(csv_file)
     vids = list(data["videoId"].values)
     titles = list(data["title"].values)
@@ -87,7 +109,7 @@ def parse_csv_to_list(csv_file, w_duration=True):
     if w_duration:
         return vids, titles, durations, timestamps
     else:
-        return vids, titles, timestamps
+        return vids, titles, timestamps'''
 
 def load_dataset_with_subtitle(asr_files):
     vids_with_asr = []
