@@ -18,4 +18,4 @@
 *.pickle
 video_chapter_generation/checkpoint/*
 video_chapter_generation/all_tensorboards
-video_chapter_youtube_dataset-master/dataset/
+video_chapter_youtube_dataset/dataset/
