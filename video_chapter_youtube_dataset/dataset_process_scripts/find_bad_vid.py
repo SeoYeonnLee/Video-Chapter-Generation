@@ -36,7 +36,7 @@ def find_duration_too_short(durations, threshold=100):
 
 
 if __name__ == "__main__":
-    data_file = "/opt/tiger/video_chapter_youtube_dataset/dataset/all_in_one_with_subtitle.csv"
+    data_file = "./dataset/all_in_one_with_subtitle.csv"
     all_vids, all_titles, all_durations, all_timestamps = parse_csv_to_list(data_file)
 
     # a = find_timestamp_too_close(all_timestamps, 10)

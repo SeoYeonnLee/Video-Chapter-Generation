@@ -97,6 +97,44 @@ def parse_csv_to_list(csv_file, w_duration=True):
         return vids, titles, durations, timestamps
     else:
         return vids, titles, timestamps
+
+def parse_csv_to_list(csv_file, w_duration=True):
+    try:
+        # 문제 있는 행 무시, Python 엔진 사용
+        data = pd.read_csv(csv_file, on_bad_lines='skip', engine='python', encoding='utf-8', sep=',')
+    except Exception as e:
+        print(f"Error reading {csv_file}: {e}")
+        return [], [], [], [] if w_duration else [], [], []
+
+    # 필요한 열이 있는지 확인하고, 없으면 빈 리스트로 대체
+    vids = list(data["videoId"].values) if "videoId" in data.columns else []
+    titles = list(data["title"].values) if "title" in data.columns else []
+    
+    if w_duration and 'duration' in data.columns:
+        durations = list(data["duration"].values)
+    else:
+        durations = []
+
+    if "timestamp" in data.columns:
+        timestamps = list(data["timestamp"].values)
+        timestamps = [x.split(TIMESTAMP_DELIMITER) if isinstance(x, str) else [] for x in timestamps]
+    else:
+        timestamps = []
+
+    # 열이 누락된 경우 경고 메시지 출력
+    if not vids:
+        print(f"Warning: 'videoId' column not found in {csv_file}")
+    if not titles:
+        print(f"Warning: 'title' column not found in {csv_file}")
+    if w_duration and not durations:
+        print(f"Warning: 'duration' column not found in {csv_file}")
+    if not timestamps:
+        print(f"Warning: 'timestamp' column not found in {csv_file}")
+
+    if w_duration:
+        return vids, titles, durations, timestamps
+    else:
+        return vids, titles, timestamps
 '''def parse_csv_to_list(csv_file, w_duration=True):
     data = pd.read_csv(csv_file)
     vids = list(data["videoId"].values)
@@ -111,6 +149,39 @@ def parse_csv_to_list(csv_file, w_duration=True):
     else:
         return vids, titles, timestamps'''
 
+# def load_dataset_with_subtitle(asr_files):
+#     vids_with_asr = []
+#     titles_with_asr = []
+#     timestamps_with_asr = []
+#     subtitles = []
+
+#     for asr_file in asr_files:
+#         dirname = os.path.dirname(asr_file)
+#         csv_file = os.path.join(dirname, "data.csv")
+
+#         # load vid and timestamp
+#         vids, titles, timestamps = parse_csv_to_list(csv_file, w_duration=False)
+#         vid2index = dict()
+#         for index, vid in enumerate(vids):
+#             vid2index[vid] = index
+
+#         # load subtitle
+#         filename = os.path.basename(asr_file)
+#         vid = filename.split(".")[0][9:]
+#         with open(asr_file, "r") as f:
+#             subtitle = json.load(f)
+
+#         index = vid2index[vid]
+#         title = titles[index]
+#         timestamp = timestamps[index]
+
+#         vids_with_asr.append(vid)
+#         titles_with_asr.append(title)
+#         timestamps_with_asr.append(timestamp)
+#         subtitles.append(subtitle)
+
+#     return vids_with_asr, titles_with_asr, timestamps_with_asr, subtitles
+
 def load_dataset_with_subtitle(asr_files):
     vids_with_asr = []
     titles_with_asr = []
@@ -123,15 +194,25 @@ def load_dataset_with_subtitle(asr_files):
 
         # load vid and timestamp
         vids, titles, timestamps = parse_csv_to_list(csv_file, w_duration=False)
-        vid2index = dict()
-        for index, vid in enumerate(vids):
-            vid2index[vid] = index
+        vid2index = {vid: index for index, vid in enumerate(vids)}
 
         # load subtitle
         filename = os.path.basename(asr_file)
         vid = filename.split(".")[0][9:]
-        with open(asr_file, "r") as f:
-            subtitle = json.load(f)
+        
+        try:
+            with open(asr_file, "r", encoding='utf-8') as f:
+                subtitle = json.load(f)
+        except json.JSONDecodeError:
+            print(f"Error decoding JSON from file: {asr_file}")
+            continue
+        except FileNotFoundError:
+            print(f"File not found: {asr_file}")
+            continue
+
+        if vid not in vid2index:
+            print(f"Video ID {vid} not found in CSV data. Skipping...")
+            continue
 
         index = vid2index[vid]
         title = titles[index]
@@ -143,8 +224,6 @@ def load_dataset_with_subtitle(asr_files):
         subtitles.append(subtitle)
 
     return vids_with_asr, titles_with_asr, timestamps_with_asr, subtitles
-
-
 
 if __name__ == "__main__":
     # csv_file = "../dataset/top steam games/data.csv"

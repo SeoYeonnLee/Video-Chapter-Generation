@@ -27,7 +27,10 @@ def flat_videos2clips(img_dir, data_file, test_vid_file, clip_frame_num=8):
         vid = filename.split(".")[0][9:]
         asr_files[vid] = asr_file
 
+    no_keys = [(i, item) for i, item in enumerate(vids) if item not in asr_files]
+    print(no_keys)
     all_clip_infos = []
+    
     for idx, vid in enumerate(vids):
         print(f"processing vid {vid}, {idx}/{len(vids)}...")
 
@@ -131,11 +134,11 @@ if __name__ == "__main__":
     parser.add_argument('--clip_frame_num', default=16, type=int)
     args = parser.parse_args()
 
-    img_dir = "/opt/tiger/youtube_video_frame_dataset"
-    data_file = "/opt/tiger/video_chapter_youtube_dataset/dataset/all_in_one_with_subtitle.csv"
+    img_dir = "youtube_video_frame_dataset"
+    data_file = "dataset/all_in_one_with_subtitle_new.csv"
     # test_vid_file = "/opt/tiger/video_chapter_youtube_dataset/dataset/test.txt"
-    # test_vid_file = "/opt/tiger/video_chapter_youtube_dataset/dataset/new_validation.txt"
-    test_vid_file = "/opt/tiger/video_chapter_youtube_dataset/dataset/new_all_vids.txt"
+    test_vid_file = "dataset/new_validation.txt"
+    # test_vid_file = "/opt/tiger/video_chapter_youtube_dataset/dataset/new_all_vids.txt"
 
 
     clip_frame_num = args.clip_frame_num
@@ -143,8 +146,8 @@ if __name__ == "__main__":
 
     # save all test clips
     # save_json_file = f"/opt/tiger/video_chapter_youtube_dataset/dataset/test_clips_clip_frame_num_{clip_frame_num}.json"
-    # save_json_file = f"/opt/tiger/video_chapter_youtube_dataset/dataset/validation_clips_clip_frame_num_{clip_frame_num}.json"
-    save_json_file = f"/opt/tiger/video_chapter_youtube_dataset/dataset/all_clips_clip_frame_num_{clip_frame_num}.json"
+    save_json_file = f"dataset/validation_clips_clip_frame_num_{clip_frame_num}.json"
+    # save_json_file = f"/opt/tiger/video_chapter_youtube_dataset/dataset/all_clips_clip_frame_num_{clip_frame_num}.json"
     with open(save_json_file, "w") as f:
         json.dump(all_clip_infos, f)
 

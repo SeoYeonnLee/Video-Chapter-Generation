@@ -63,7 +63,7 @@ def parse_wikihow_webpage_to_get_queries():
 def find_query_belong_category():
     category2query = parse_wikihow_webpage_to_get_queries()
 
-    with open("wikihow_query.txt", "r") as f:
+    with open("wikihow_query_total.txt", "r") as f:
         query = [x.strip() for x in f.readlines()]
     
     category_count = {"unknown": 0}
@@ -87,11 +87,13 @@ def find_query_belong_category():
     print(category_count)
     
     # get all valid vids
-    with open("dataset/train.txt", "r") as f:
+    with open("dataset/new_train.txt", "r") as f:
         train_vids = [x.strip() for x in f.readlines()]
-    with open("dataset/test.txt", "r") as f:
+    with open("dataset/new_validation.txt", "r") as f:
+        valid_vids = [x.strip() for x in f.readlines()]
+    with open("dataset/new_test.txt", "r") as f:
         test_vids = [x.strip() for x in f.readlines()]
-    valid_vids = train_vids + test_vids
+    total_vids = train_vids + valid_vids + test_vids
 
     # all_vid2category
     subtitle_files = glob.glob("dataset/*/*.json")
@@ -109,7 +111,7 @@ def find_query_belong_category():
     
     # valid vid 2 category
     valid_vid2category = dict()
-    for vid in valid_vids:
+    for vid in total_vids:
         valid_vid2category[vid] = all_vid2category[vid]
     
     # category 2 valid vid
@@ -124,12 +126,10 @@ def find_query_belong_category():
     for k, v in category2valid_vid.items():
         print(f"{k}, {len(v)}")
     
-    with open("dataset/category2valid_vid.json", "w") as f:
+    with open("dataset/category2total_vid.json", "w") as f:
         json.dump(category2valid_vid, f)
 
 
 if __name__ == "__main__":
     # parse_wikihow_webpage_to_get_queries()
     find_query_belong_category()
-
-

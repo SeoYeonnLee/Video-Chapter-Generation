@@ -35,9 +35,9 @@ def multiple_process_load_video(process_idx, paths, vid_dict, duration_dict):
 
 
 def combine_all_data_with_subtitle():
-    video_root = "D:/youtube_video_dataset"
-    save_data_file_path = "../dataset/all_in_one_with_subtitle.csv"
-    asr_files = glob.glob("../dataset/*/subtitle_*.json")
+    video_root = "./vids"
+    save_data_file_path = "./dataset/all_in_one_with_subtitle.csv"
+    asr_files = glob.glob("./dataset/*/subtitle_*.json")
 
     # multiple process run
     all_video_files = glob.glob(video_root + "/*.mp4")

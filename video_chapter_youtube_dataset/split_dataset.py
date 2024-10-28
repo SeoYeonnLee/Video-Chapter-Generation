@@ -20,7 +20,7 @@ def use_fix_random_seed():
 
 if __name__ == "__main__":
     use_fix_random_seed()
-    all_in_one_file = "/opt/tiger/video_chapter_youtube_dataset/dataset/all_in_one_with_subtitle.csv"
+    all_in_one_file = "dataset/all_in_one_with_subtitle_final.csv"
     data = pd.read_csv(all_in_one_file)
     vids = list(data["videoId"].values)
 
@@ -34,18 +34,22 @@ if __name__ == "__main__":
     train_vids = vids[:train_num]
     validation_vids = vids[train_num:(train_num + validation_num)]
     test_vids = vids[(train_num+validation_num):]
+
+    print(f'train data: {len(train_vids)}')
+    print(f'validation data: {len(validation_vids)}')
+    print(f'test data: {len(test_vids)}')
     
-    train_vid_file = "/opt/tiger/video_chapter_youtube_dataset/dataset/new_train.txt"
+    train_vid_file = "dataset/train_final.txt"
     with open(train_vid_file, "w") as f:
         for vid in train_vids:
             f.write(vid + "\n")
     
-    validation_vid_file = "/opt/tiger/video_chapter_youtube_dataset/dataset/new_validation.txt"
+    validation_vid_file = "dataset/validation_final.txt"
     with open(validation_vid_file, "w") as f:
         for vid in validation_vids:
             f.write(vid + "\n")
 
-    test_vid_file = "/opt/tiger/video_chapter_youtube_dataset/dataset/new_test.txt"
+    test_vid_file = "dataset/test_final.txt"
     with open(test_vid_file, "w") as f:
         for vid in test_vids:
             f.write(vid + "\n")

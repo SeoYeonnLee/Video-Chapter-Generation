@@ -29,13 +29,13 @@ def extract_frame_fn(process_idx, video_files, durations, video_frame_dir, extra
 
 
 if __name__ == "__main__":
-    data = pd.read_csv("D:/py3_code/video_chapter_youtube_dataset/dataset/all_in_one_with_subtitle.csv")
+    data = pd.read_csv("./dataset/all_in_one_with_subtitle_new.csv")
     vids = list(data["videoId"].values)
     durations = list(data["duration"].values)
-    video_dir = "D:/youtube_video_dataset"
+    video_dir = "vids"
     video_files = [video_dir + "/" + x + ".mp4" for x in vids]
 
-    video_frame_dir = "E:/youtube_video_frame_dataset"
+    video_frame_dir = "./youtube_video_frame_dataset"
     os.makedirs(video_frame_dir, exist_ok=True)
 
     extract_fps = 1

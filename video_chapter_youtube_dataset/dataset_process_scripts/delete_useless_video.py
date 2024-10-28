@@ -9,10 +9,10 @@ import os, glob
 import pandas as pd
 
 
-data = pd.read_csv("D:/py3_code/video_chapter_youtube_dataset/dataset/all_in_one_with_subtitle.csv")
+data = pd.read_csv("/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/all_in_one_with_subtitle_new.csv")
 vids = list(data["videoId"].values)
 durations = list(data["duration"].values)
-video_dir = "D:/youtube_video_dataset"
+video_dir = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/vids"
 video_files = [video_dir + "/" + x + ".mp4" for x in vids]
 video_filenames = set([os.path.basename(x) for x in video_files])
 
