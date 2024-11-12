@@ -29,33 +29,33 @@ if __name__ == "__main__":
 
     import argparse
     parser = argparse.ArgumentParser(description='video chapter title generation model')
-    parser.add_argument('--gpu', default=1, type=int)
+    parser.add_argument('--gpu', default=0, type=int)
     parser.add_argument('--data_mode', default="all", type=str)     # easy, hard, all
     parser.add_argument('--batch_size', default=16, type=int)
     parser.add_argument('--lr_decay_type', default="cosine", type=str)
-    parser.add_argument('--model_type', default="bigbird", type=str)    # pegasus or bigbird
-    parser.add_argument('--location_type', default="pred", type=str)    # gt or pred
+    parser.add_argument('--model_type', default="pegasus", type=str)    # pegasus or bigbird
+    parser.add_argument('--location_type', default="gt", type=str)    # gt or pred
     args = parser.parse_args()
 
-    checkpoint_dir = f"chapter_title_hugface_{args.model_type}_validation/batch_64_lr_decay_cosine"
-    ckpt_path = f"/opt/tiger/video_chapter_generation/checkpoint/chapter_title_gen/{checkpoint_dir}/checkpoint.pth"
-    data_file = "/opt/tiger/video_chapter_youtube_dataset/dataset/all_in_one_with_subtitle.csv"
-    train_vid_file = "/opt/tiger/video_chapter_youtube_dataset/dataset/new_train.txt"
-    test_vid_file = "/opt/tiger/video_chapter_youtube_dataset/dataset/new_test.txt"
-    test_easy_vid_file = f"/opt/tiger/video_chapter_youtube_dataset/dataset/new_easy_test_vid.txt"
-    test_hard_vid_file = f"/opt/tiger/video_chapter_youtube_dataset/dataset/new_hard_test_vid.txt"
+    checkpoint_dir = f"{args.model_type}_batch_{args.batch_size}"
+    ckpt_path = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/chapter_title_gen/{checkpoint_dir}/checkpoint.pth"
+    data_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/all_in_one_with_subtitle_final.csv"
+    train_vid_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/final_train.txt"
+    test_vid_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/final_test.txt"
+    # test_easy_vid_file = f"/opt/tiger/video_chapter_youtube_dataset/dataset/new_easy_test_vid.txt"
+    # test_hard_vid_file = f"/opt/tiger/video_chapter_youtube_dataset/dataset/new_hard_test_vid.txt"
     # result_file = f"./test_results/chapter_title_gen/{checkpoint_dir}_{args.data_mode}_vid.txt"
 
     # for title summarization based on predicted cut points
-    vid2cut_points_file = "/opt/tiger/video_chapter_generation/test_results/all/two_stream_validation/batch_32_head_type_mlp_clip_frame_num_16_all_vid2cut_points.json"
+    vid2cut_points_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/test_results/head_mlp_batch_16_vid2cut_points.json"
     if args.location_type == "gt":
-        result_file = f"./test_results/chapter_title_gen/{checkpoint_dir}_{args.data_mode}.txt"
+        result_file = f"./test_results/chapter_title_gen/{checkpoint_dir}.txt"
     else:
-        result_file = f"./test_results/chapter_title_gen/{checkpoint_dir}_{args.data_mode}_vid_pred_cut_points.txt"
+        result_file = f"./test_results/chapter_title_gen/{checkpoint_dir}_vid_pred_cut_points.txt"
     
 
     # other hyperparameters
-    num_workers = 8
+    num_workers = 16
     max_text_len = 512
     chapter_title_text_len = 30
 

@@ -173,7 +173,7 @@ def main():
     
     # 샘플러 초기화
     sampler = DatasetSampler(
-        category_file="dataset/category2total_vid.json",
+        category_file="category2total_vid_valid.json",
         target_stats=target_stats,
         error_range=0.05
     )

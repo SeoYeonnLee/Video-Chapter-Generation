@@ -32,12 +32,12 @@ if __name__ == "__main__":
     set_random_seed.use_fix_random_seed()
     import argparse
     parser = argparse.ArgumentParser(description='video chapter model')
-    parser.add_argument('--gpu', default=6, type=int)
+    parser.add_argument('--gpu', default=0, type=int)
     parser.add_argument('--data_mode', default="all", type=str, help="text (text only), image (image only) or all (multiple-model)")
     parser.add_argument('--model_type', default="two_stream", type=str, help="bert, r50tsm, r50, two_stream")
     parser.add_argument('--clip_frame_num', default=16, type=int)
     parser.add_argument('--epoch', default=3000, type=int)
-    parser.add_argument('--batch_size', default=32, type=int)
+    parser.add_argument('--batch_size', default=8, type=int)
     parser.add_argument('--lr_decay_type', default="cosine", type=str)
     parser.add_argument('--head_type', default="mlp", type=str, help="only work on two_stream model")
     parser.add_argument('--data_type', default="all", type=str, help="all, easy, hard, ambiguous")
@@ -47,22 +47,22 @@ if __name__ == "__main__":
     clip_frame_num = args.clip_frame_num
     max_text_len = 100
 
-    if args.clip_frame_num > 10:
-        b = 32
-    else:
-        b = 64
-    checkpoint_dir = f"{args.model_type}_validation/batch_{b}_head_type_{args.head_type}_clip_frame_num_{args.clip_frame_num}"
-    ckpt_path = f"/opt/tiger/video_chapter_generation/checkpoint/{args.data_mode}/{checkpoint_dir}/checkpoint.pth"
-    result_file = f"./test_results/{args.data_mode}/{checkpoint_dir}_{args.data_type}_.txt"
-    vid2cut_points_file = f"./test_results/{args.data_mode}/{checkpoint_dir}_{args.data_type}_vid2cut_points.json"
-    data_file = "/opt/tiger/video_chapter_youtube_dataset/dataset/all_in_one_with_subtitle.csv"
-    test_clips_json = f"/opt/tiger/video_chapter_youtube_dataset/dataset/test_clips_clip_frame_num_{clip_frame_num}.json"
-    test_easy_clips_json = f"/opt/tiger/video_chapter_youtube_dataset/dataset/test_easy_clips_clip_frame_num_{clip_frame_num}.json"
-    test_hard_clips_json = f"/opt/tiger/video_chapter_youtube_dataset/dataset/test_hard_clips_clip_frame_num_{clip_frame_num}.json"
+    # if args.clip_frame_num > 10:
+    #     b = 32
+    # else:
+    #     b = 64
+    checkpoint_dir = f"head_{args.head_type}_batch_16"#{args.batch_size}"
+    ckpt_path = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/{checkpoint_dir}/checkpoint.pth"
+    result_file = f"./test_results/{checkpoint_dir}_.txt"
+    vid2cut_points_file = f"./test_results/{checkpoint_dir}_vid2cut_points.json"
+    data_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/all_in_one_with_subtitle_final.csv"
+    test_clips_json = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/test_clips_clip_frame_num_{clip_frame_num}.json"
+    # test_easy_clips_json = f"/opt/tiger/video_chapter_youtube_dataset/dataset/test_easy_clips_clip_frame_num_{clip_frame_num}.json"
+    # test_hard_clips_json = f"/opt/tiger/video_chapter_youtube_dataset/dataset/test_hard_clips_clip_frame_num_{clip_frame_num}.json"
     
-    train_vid_file = "/opt/tiger/video_chapter_youtube_dataset/dataset/train.txt"
-    test_vid_file = "/opt/tiger/video_chapter_youtube_dataset/dataset/test.txt"
-    img_dir = "/opt/tiger/youtube_video_frame_dataset"
+    train_vid_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/final_train.txt"
+    test_vid_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/final_test.txt"
+    img_dir = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/youtube_video_frame_dataset"
 
 
     # init model
@@ -97,16 +97,45 @@ if __name__ == "__main__":
         model = two_stream.TwoStream(lang_base_model, vision_base_model, lang_model.embed_size, vision_model.feature_dim, clip_frame_num, hidden_size)
         model.build_chapter_head(output_size=2, head_type=args.head_type)
         model = model.to(args.gpu)
+
+        checkpoint = torch.load(ckpt_path)
+        start_epoch = checkpoint["epoch"]
+        best_result = checkpoint["best_result"]
+        model.load_state_dict(checkpoint["model_state_dict"])    
+
+        model = model.eval()
+        
+        if hasattr(model, 'vision_model'):
+            model.vision_model = model.vision_model.eval()
+            print("Vision model set to eval mode")
+        if hasattr(model, 'lang_model'):
+            model.lang_model = model.lang_model.eval()
+            print("Language model set to eval mode")
+        
+        bn_count = 0
+        for module in model.modules():
+            if isinstance(module, torch.nn.BatchNorm2d):
+                module.track_running_stats = False
+                module.running_mean = None
+                module.running_var = None
+                bn_count += 1
+
+        torch.set_grad_enabled(False)
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            print("Cleared CUDA cache")
+
     else:
         raise RuntimeError(f"Unknown data mode {args.data_mode}")
 
     # load checkpoint
-    checkpoint = torch.load(ckpt_path)
-    start_epoch = checkpoint["epoch"]
-    best_result = checkpoint["best_result"]
-    model.load_state_dict(checkpoint["model_state_dict"])
-    model.eval()
-
+    # checkpoint = torch.load(ckpt_path)
+    # start_epoch = checkpoint["epoch"]
+    # print(f'epoch: {start_epoch}')
+    # best_result = checkpoint["best_result"]
+    # print(f'best_result: {best_result}')
+    # model.load_state_dict(checkpoint["model_state_dict"])
 
     # test on all videos 
     test_vision_preprocess = transforms.Compose([
@@ -118,11 +147,18 @@ if __name__ == "__main__":
         infer_video_dataset = InferYoutubeClipDataset(img_dir, test_clips_json, tokenizer, clip_frame_num, max_text_len, mode=args.data_mode, transform=test_vision_preprocess)
     elif args.data_type == "easy":
         infer_video_dataset = InferYoutubeClipDataset(img_dir, test_easy_clips_json, tokenizer, clip_frame_num, max_text_len, mode=args.data_mode, transform=test_vision_preprocess)
-    elif args.data_type == "hard":
+    elif args.data_type == "hard":         
         infer_video_dataset = InferYoutubeClipDataset(img_dir, test_hard_clips_json, tokenizer, clip_frame_num, max_text_len, mode=args.data_mode, transform=test_vision_preprocess)
     else:
         raise RuntimeError(f"Unknown data_type {args.data_type}")
-    infer_video_loader = DataLoader(infer_video_dataset, shuffle=False, pin_memory=True, batch_size=args.batch_size, num_workers=8)
+    infer_video_loader = DataLoader(
+        infer_video_dataset,
+        shuffle=False,
+        pin_memory=False,
+        batch_size=args.batch_size,
+        num_workers=4,
+        persistent_workers=False
+    )
 
     all_pred_label = []
     all_pred_score = []
@@ -156,23 +192,26 @@ if __name__ == "__main__":
             else:
                 raise RuntimeError(f"Unknown data mode {args.data_mode}")
 
-        et = time.time()
-        print(f"cost time2 {et - st}s")
+            et = time.time()
+            print(f"cost time2 {et - st}s")
 
-        st = time.time()
-        topk_scores, topk_labels = binary_logits.data.topk(1, 1, True, True)
-        pred_y = topk_labels.squeeze(1)
-        scores = binary_prob[:, 1]
+            st = time.time()
+            topk_scores, topk_labels = binary_logits.data.topk(1, 1, True, True)
+            pred_y = topk_labels.squeeze(1).cpu().numpy()
+            scores = binary_prob[:, 1].cpu().numpy()
 
-        pred_y = list(pred_y.cpu().numpy())
-        scores = list(scores.cpu().numpy())
-        all_pred_label.extend(pred_y)
-        all_pred_score.extend(scores)
+            all_pred_label.extend(list(pred_y))
+            all_pred_score.extend(list(scores))
+
         et = time.time()
         print(f"cost time3 {et - st}s")
         
         global_et = time.time()
         print(f"global cost time {global_et - global_st}s")
+
+        del img_clip, text_ids, attention_mask, label
+        del binary_logits, binary_prob, topk_scores, topk_labels
+        torch.cuda.empty_cache()
 
     # gather results
     st = time.time()
@@ -295,6 +334,11 @@ if __name__ == "__main__":
     # save and calculate results
     ##############
     # save pred cutpoints to file
+
+
+    if not os.path.exists(os.path.dirname(vid2cut_points_file)):
+        os.makedirs(os.path.dirname(vid2cut_points_file))
+
     with open(vid2cut_points_file, "w") as f:
         json.dump(vid2cut_points, f)
     

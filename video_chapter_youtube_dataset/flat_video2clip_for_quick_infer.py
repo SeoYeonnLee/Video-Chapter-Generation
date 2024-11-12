@@ -8,7 +8,7 @@ import os, glob
 from dataset_process_scripts.load_dataset_utils import parse_csv_to_list, extract_first_timestamp
 
 
-def flat_videos2clips(img_dir, data_file, test_vid_file, clip_frame_num=8):
+def flat_videos2clips(img_dir, data_file, test_vid_file, clip_frame_num=16):
     half_clip_frame_num = int(clip_frame_num // 2)
 
     # processed vids
@@ -134,10 +134,10 @@ if __name__ == "__main__":
     parser.add_argument('--clip_frame_num', default=16, type=int)
     args = parser.parse_args()
 
-    img_dir = "youtube_video_frame_dataset"
-    data_file = "dataset/all_in_one_with_subtitle_new.csv"
+    img_dir = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/youtube_video_frame_dataset"
+    data_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/all_in_one_with_subtitle_final.csv"
     # test_vid_file = "/opt/tiger/video_chapter_youtube_dataset/dataset/test.txt"
-    test_vid_file = "dataset/new_validation.txt"
+    test_vid_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/final_test.txt"
     # test_vid_file = "/opt/tiger/video_chapter_youtube_dataset/dataset/new_all_vids.txt"
 
 
@@ -146,7 +146,7 @@ if __name__ == "__main__":
 
     # save all test clips
     # save_json_file = f"/opt/tiger/video_chapter_youtube_dataset/dataset/test_clips_clip_frame_num_{clip_frame_num}.json"
-    save_json_file = f"dataset/validation_clips_clip_frame_num_{clip_frame_num}.json"
+    save_json_file = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/test_clips_clip_frame_num_{clip_frame_num}.json"
     # save_json_file = f"/opt/tiger/video_chapter_youtube_dataset/dataset/all_clips_clip_frame_num_{clip_frame_num}.json"
     with open(save_json_file, "w") as f:
         json.dump(all_clip_infos, f)

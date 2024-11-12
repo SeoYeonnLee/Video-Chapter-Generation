@@ -66,16 +66,26 @@ class YoutubeClipDataset:
 
         with open(asr_file, "r") as f:
             subtitles = json.load(f)
-
+        
+        # if vid == 'Dstd3mvUTAY':
+        # print(f'image num: {image_num}')
+        # print(f'timestamp: {timestamp}')
         # parse timestamp
         cut_points = []         # G.T. cut point + a little bit offset
         real_cut_points = []    # record G.T. cut point
         descriptions = []
         for timestamp_str in timestamp:
             sec, description = extract_first_timestamp(timestamp_str)
+            # if vid == 'Dstd3mvUTAY':
+            # print(f'sec: {sec}')
+            # print(f'description: {description}')
+                
             if sec < 4:
                 continue
-            if sec > image_num - 4:
+            # if sec > image_num - 4:
+            if sec > image_num:
+                print(f'vid: {vid}')
+                print(f'sec: {sec}, image num: {image_num}')
                 continue
             
             cut_points.append(sec)
@@ -111,8 +121,13 @@ class YoutubeClipDataset:
                 neg_clip_indices.append(idx)
             clip_labels.append(label)
 
+        
         ### 3. sample positive or negative clip
-        is_positive = random.sample([0, 1], k=1)[0]
+        if not pos_clip_indices: # 모든 clip의 chapter 구분점이 없는 경우 negative로 sampling
+            is_positive = 0
+        else:
+            is_positive = random.sample([0, 1], k=1)[0]
+
         if is_positive:
             pos_clip_index = random.sample(pos_clip_indices, k=1)[0]
             clip = clips[pos_clip_index]
@@ -125,7 +140,7 @@ class YoutubeClipDataset:
 
         # get the subtitle in-between [clip_start_sec - text_extra_time_gap, clip_end_sec + text_extra_time_gap]
         text_extra_time_gap = 1
-        text_clip = ""
+        text_clip = "" 
         for sub in subtitles:
             text = sub["text"]
             start_sec = sub["start"]
@@ -140,7 +155,7 @@ class YoutubeClipDataset:
 
         ### process text
         # put [CLS] at the first, so that we can train sentence representation after pretrained
-        text_clip = "[CLS] " + text_clip
+        text_clip = "[CLS] " + text_clip # 해당 clip 내의 subtitle 추출
         tokens = self.tokenizer.tokenize(text_clip)
         # truncate
         tokens = tokens[:self.max_text_len]
@@ -175,7 +190,7 @@ class YoutubeClipDataset:
                 img = Image.open(image_filename).convert('RGB')
                 img = self.transform(img)
                 img_list.append(img)
-            img_clip = torch.stack(img_list, dim=0)
+            img_clip = torch.stack(img_list, dim=0) # 해당 clip 내의 frame 추출
             # img_clip = 0
 
             # visualize this clip

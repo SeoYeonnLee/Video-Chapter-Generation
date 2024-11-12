@@ -27,6 +27,8 @@ logger = logging.getLogger(__name__)
 class TrainerConfig:
     # optimization parameters
     max_epochs = 10
+    start_epoch = 0
+    best_result = float('-inf')
     block_size = 512
     batch_size = 64
     learning_rate = 3e-4
@@ -77,8 +79,9 @@ class Trainer:
         self.optimizer = raw_model.configure_optimizers(self.config)
 
         best_result = float('-inf')
+
         test_result = float('-inf')
-        for epoch in range(self.config.max_epochs):
+        for epoch in range(self.config.start_epoch, self.config.max_epochs):
             train_acc = self.run_epoch('train', epoch)
             if self.test_dataset is not None and epoch % 20 == 0:
                 test_result = self.run_epoch('test', epoch)
@@ -193,24 +196,26 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description='video chapter title generation model')
     parser.add_argument('--gpu', default=0, type=int)
-    parser.add_argument('--epoch', default=3000, type=int)
-    parser.add_argument('--batch_size', default=64, type=int)
+    parser.add_argument('--epoch', default=300, type=int)
+    parser.add_argument('--batch_size', default=16, type=int)
     parser.add_argument('--lr_decay_type', default="cosine", type=str)
     parser.add_argument('--model_type', default="pegasus", type=str)
     args = parser.parse_args()
 
-    ckpt_path = f"/opt/tiger/video_chapter_generation/checkpoint/chapter_title_gen/chapter_title_hugface_{args.model_type}_validation/batch_{args.batch_size}_lr_decay_{args.lr_decay_type}/checkpoint.pth"
-    data_file = "/opt/tiger/video_chapter_youtube_dataset/dataset/all_in_one_with_subtitle.csv"
+    ckpt_path = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/chapter_title_gen/{args.model_type}_batch_{args.batch_size}/checkpoint.pth"
+    data_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/all_in_one_with_subtitle_final.csv"
     # train_vid_file = "/opt/tiger/video_chapter_youtube_dataset/dataset/train.txt"
     # test_vid_file = "/opt/tiger/video_chapter_youtube_dataset/dataset/test.txt"
-    train_vid_file = "/opt/tiger/video_chapter_youtube_dataset/dataset/new_train.txt"
-    test_vid_file = "/opt/tiger/video_chapter_youtube_dataset/dataset/new_validation.txt"
+    train_vid_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/final_train.txt"
+    test_vid_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/final_validation.txt"
     tensorboard_log = os.path.dirname(ckpt_path)
     tensorboard_writer = SummaryWriter(tensorboard_log)
 
     set_random_seed.use_fix_random_seed()
     batch_size = args.batch_size
     num_workers = 16
+    start_epoch = 0
+    best_result = float('-inf')
     chapter_title_text_len = 30
     max_text_len = 512
 
@@ -224,14 +229,22 @@ if __name__ == "__main__":
     else:
         raise RuntimeError(f"Unknown model_type {args.model_type}")
 
-    model = torch.nn.DataParallel(model, device_ids=[0, 1, 2, 3, 4, 5, 6, 7])
+    
+    if os.path.exists(ckpt_path):
+        checkpoint = torch.load(ckpt_path)
+        start_epoch = checkpoint["epoch"]
+        best_result = checkpoint["best_result"]
+        model.load_state_dict(checkpoint["model_state_dict"])
+        print(f"Checkpoint loaded: Starting from epoch {start_epoch} with best result {best_result}")
+
+    model = torch.nn.DataParallel(model, device_ids=[0, 1])
     
     # dataset
     train_dataset = YoutubeChapterTitleDataset(data_file, train_vid_file, tokenizer, max_text_len, chapter_title_text_len)
     test_dataset = YoutubeChapterTitleDataset(data_file, test_vid_file, tokenizer, max_text_len, chapter_title_text_len)
     
     # initialize a trainer instance and kick off training
-    tconf = TrainerConfig(max_epochs=args.epoch, batch_size=batch_size, learning_rate=1e-5, block_size=max_text_len,
+    tconf = TrainerConfig(max_epochs=args.epoch, start_epoch=start_epoch, best_result=best_result, batch_size=batch_size, learning_rate=1e-5, block_size=max_text_len,
                         lr_decay_type=args.lr_decay_type, lr_decay=True, warmup_epochs=args.epoch//100, final_epochs=args.epoch//100*90,
                         num_workers=num_workers, ckpt_path=ckpt_path, tensorboard_writer=tensorboard_writer)
     trainer = Trainer(model, tokenizer, train_dataset, test_dataset, tconf)

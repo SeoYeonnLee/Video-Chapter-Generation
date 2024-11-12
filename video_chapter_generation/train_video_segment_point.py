@@ -116,7 +116,8 @@ class Trainer:
         losses = []
         
         loader = DataLoader(dataset, shuffle=shuffle, pin_memory=True, batch_size=self.config.batch_size, num_workers=self.config.num_workers)
-        pbar = tqdm(enumerate(loader), total=len(loader)) if is_train else enumerate(loader)
+        # pbar = tqdm(enumerate(loader), total=len(loader)) if is_train else enumerate(loader)
+        pbar = tqdm(enumerate(loader), total=len(loader))
         for it, (img_clip, text_ids, attention_mask, label) in pbar:
             img_clip = img_clip.float().to(self.device)
             text_ids = text_ids.to(self.device)
@@ -255,9 +256,9 @@ if __name__ == "__main__":
     parser.add_argument('--gpu', default=0, type=int)
     parser.add_argument('--data_mode', default="all", type=str, help="text (text only), image (image only) or all (multiple-model)")
     parser.add_argument('--model_type', default="two_stream", type=str, help="bert, r50tsm, two_stream")
-    parser.add_argument('--clip_frame_num', default=12, type=int)
-    parser.add_argument('--epoch', default=3000, type=int)
-    parser.add_argument('--batch_size', default=32, type=int)
+    parser.add_argument('--clip_frame_num', default=16, type=int)
+    parser.add_argument('--epoch', default=280, type=int)
+    parser.add_argument('--batch_size', default=16, type=int)
     parser.add_argument('--lr_decay_type', default="cosine", type=str)
     parser.add_argument('--head_type', default="mlp", type=str, help="mlp or attn, only work on two_stream model")
     args = parser.parse_args()
@@ -265,30 +266,23 @@ if __name__ == "__main__":
     set_random_seed.use_fix_random_seed()
     batch_size = args.batch_size
     clip_frame_num = args.clip_frame_num
-    num_workers = 16
+    num_workers = 8
     max_text_len = 100
     start_epoch = 0
     best_result = float('-inf')
-    if args.clip_frame_num > 10:
-        batch_size = 32
-    else:
-        batch_size = 64
 
+    vision_pretrain_ckpt_path = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/r50tsm/batch_{batch_size}_lr_decay_cosine_train_test_split/pretrain.pth"
+    lang_pretrain_ckpt_path = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/hugface_bert_pretrain/batch_{batch_size}_lr_decay_cosine_train_test_split/pretrain.pth"
+    # ckpt_path = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/{args.data_mode}/{args.model_type}_validation/batch_{batch_size}_head_type_{args.head_type}_clip_frame_num_{args.clip_frame_num}/checkpoint.pth"
+    ckpt_path = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/head_{args.head_type}_batch_{batch_size}/checkpoint.pth"
+    img_dir = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/youtube_video_frame_dataset"
+    data_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/all_in_one_with_subtitle_final.csv"
+    test_clips_json = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/validation_clips_clip_frame_num_{clip_frame_num}.json"
 
-    vision_pretrain_ckpt_path = f"/opt/tiger/video_chapter_generation/checkpoint/r50tsm/batch_64_lr_decay_cosine_train_test_split/pretrain.pth"
-    lang_pretrain_ckpt_path = f"/opt/tiger/video_chapter_generation/checkpoint/hugface_bert_pretrain/batch_64_lr_decay_cosine_train_test_split/pretrain.pth"
-    ckpt_path = f"/opt/tiger/video_chapter_generation/checkpoint/{args.data_mode}/{args.model_type}_validation/batch_{batch_size}_head_type_{args.head_type}_clip_frame_num_{args.clip_frame_num}/checkpoint.pth"
-    img_dir = "/opt/tiger/youtube_video_frame_dataset"
-    data_file = "/opt/tiger/video_chapter_youtube_dataset/dataset/all_in_one_with_subtitle.csv"
-    # test_clips_json = f"/opt/tiger/video_chapter_youtube_dataset/dataset/test_clips_clip_frame_num_{clip_frame_num}.json"
-    test_clips_json = f"/opt/tiger/video_chapter_youtube_dataset/dataset/validation_clips_clip_frame_num_{clip_frame_num}.json"
-
-    # train_vid_file = "/opt/tiger/video_chapter_youtube_dataset/dataset/train.txt"
-    # test_vid_file = "/opt/tiger/video_chapter_youtube_dataset/dataset/test.txt"
-    train_vid_file = "/opt/tiger/video_chapter_youtube_dataset/dataset/new_train.txt"
-    test_vid_file = "/opt/tiger/video_chapter_youtube_dataset/dataset/new_validation.txt"
-    # tensorboard_log = os.path.dirname(ckpt_path)
-    # tensorboard_writer = SummaryWriter(tensorboard_log)
+    train_vid_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/final_train.txt"
+    test_vid_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/final_validation.txt"
+    tensorboard_log = os.path.dirname(ckpt_path)
+    tensorboard_writer = SummaryWriter(tensorboard_log)
 
     # init model
     # lang model
@@ -321,7 +315,7 @@ if __name__ == "__main__":
         model = vision_model
         model.build_chapter_head()
         model = model.to(args.gpu)
-        model = torch.nn.DataParallel(model, device_ids=[0,1,2,3,4,5,6])
+        model = torch.nn.DataParallel(model, device_ids=[0,1])
     elif args.data_mode == "all":
         lang_base_model = lang_model.base_model
         vision_base_model = vision_model.base_model
@@ -329,7 +323,7 @@ if __name__ == "__main__":
         model = two_stream.TwoStream(lang_base_model, vision_base_model, lang_model.embed_size, vision_model.feature_dim, clip_frame_num, hidden_size)
         model.build_chapter_head(output_size=2, head_type=args.head_type)
         model = model.to(args.gpu)
-        model = torch.nn.DataParallel(model, device_ids=[0,1,2,3,4,5,6,7])
+        model = torch.nn.DataParallel(model, device_ids=[0,1])
     else:
         raise RuntimeError(f"Unknown data mode {args.data_mode}")
     
@@ -364,4 +358,3 @@ if __name__ == "__main__":
     trainer = Trainer(model, train_dataset, test_dataset, tconf)
     trainer.device = args.gpu
     trainer.train()
-

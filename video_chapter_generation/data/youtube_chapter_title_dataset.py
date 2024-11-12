@@ -559,7 +559,6 @@ class YoutubeAllChapterTitlePredictDataset:
             asr_file = self.vid2asr_files[vid]
             duration = round(self.vid2durations[vid] - 1)    # equal to video total duration (seconds)
             pred_cut_points = self.vid2pred_cut_points[vid]["second_pred_cut_points"]
-
             with open(asr_file, "r") as f:
                 subtitle = json.load(f)
             

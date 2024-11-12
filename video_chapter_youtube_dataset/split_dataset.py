@@ -39,17 +39,17 @@ if __name__ == "__main__":
     print(f'validation data: {len(validation_vids)}')
     print(f'test data: {len(test_vids)}')
     
-    train_vid_file = "dataset/train_final.txt"
+    train_vid_file = "dataset/final_train.txt"
     with open(train_vid_file, "w") as f:
         for vid in train_vids:
             f.write(vid + "\n")
     
-    validation_vid_file = "dataset/validation_final.txt"
+    validation_vid_file = "dataset/final_validation.txt"
     with open(validation_vid_file, "w") as f:
         for vid in validation_vids:
             f.write(vid + "\n")
 
-    test_vid_file = "dataset/test_final.txt"
+    test_vid_file = "dataset/final_test.txt"
     with open(test_vid_file, "w") as f:
         for vid in test_vids:
             f.write(vid + "\n")

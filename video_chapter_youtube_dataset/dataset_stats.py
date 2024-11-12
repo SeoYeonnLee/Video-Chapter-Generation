@@ -25,7 +25,7 @@ def draw_duration_hist(data_file, save_path):
     plt.xlabel('Duration (seconds)')
     plt.ylabel('Number of Videos')
     bins = list(bins)
-    plt.savefig(os.path.join(save_path, "mean_duration_hist.jpg"))
+    plt.savefig(os.path.join(save_path, "hist/mean_duration_hist.jpg"))
     plt.close()
 
     return len(durations), duration_mean
@@ -44,7 +44,7 @@ def draw_chapter_num_hist(data_file, save_path):
     plt.xlabel('Number of Chapters')
     plt.ylabel('Number of Videos')
     bins = list(bins)
-    plt.savefig(os.path.join(save_path, "chapter_num_hist.jpg"))
+    plt.savefig(os.path.join(save_path, "hist/chapter_num_hist.jpg"))
     plt.close() 
     
     return min(chapter_nums), max(chapter_nums), round(sum(chapter_nums)/len(chapter_nums), 2)
@@ -71,7 +71,7 @@ def timestamp_description_len(data_file, save_path):
     plt.xlabel('Description Length')
     plt.ylabel('Number of Videos')
     bins = list(bins)
-    plt.savefig(os.path.join(save_path, "description_len_hist.jpg"))
+    plt.savefig(os.path.join(save_path, "hist/description_len_hist.jpg"))
     plt.close() 
 
     return max(description_len_list), min(description_len_list), round(sum(description_len_list)/len(description_len_list), 2)
@@ -230,12 +230,12 @@ def stats_by_category(data_file, category_file):
     return category_stats, total_stats
 
 def main():
-    train_vid_file = "dataset/new_train.txt"
-    valid_vid_file = "dataset/new_validation.txt"
-    test_vid_file = "dataset/new_test.txt"
+    train_vid_file = "dataset/final_train.txt"
+    valid_vid_file = "dataset/final_validation.txt"
+    test_vid_file = "dataset/final_test.txt"
 
-    data_file="dataset/all_in_one_with_subtitle_new.csv"
-    category_file="dataset/category2total_vid.json"
+    data_file="dataset/all_in_one_with_subtitle_final.csv"
+    category_file="dataset/sampled_videos.json"
 
     img_dir="youtube_video_frame_dataset"
     save_path="dataset_stats_result"
@@ -309,13 +309,13 @@ def main():
     base_stats['valid_nums'] = valid_nums
     base_stats['test_nums'] = test_nums
 
-    with open(os.path.join(save_path, "base_statistics.json"), "w") as f:
+    with open(os.path.join(save_path, "json/base_statistics.json"), "w") as f:
         json.dump(base_stats, f, indent=4)
 
-    with open(os.path.join(save_path, "category_statistics.json"), "w") as f:
+    with open(os.path.join(save_path, "json/category_statistics.json"), "w") as f:
         json.dump(category_stats, f, indent=4)
 
-    with open(os.path.join(save_path, "total_statistics.json"), "w") as f:
+    with open(os.path.join(save_path, "json/total_statistics.json"), "w") as f:
         json.dump(total_stats, f, indent=4)
 
 

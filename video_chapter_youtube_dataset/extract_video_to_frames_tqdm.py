@@ -43,6 +43,12 @@ def progress_tracker(queue, total):
 
 if __name__ == "__main__":
     data = pd.read_csv("./dataset/all_in_one_with_subtitle_new.csv")
+
+    # # 해당 비디오 ID 'Dstd3mvUTAY'만 처리
+    # vid_id = 'Dstd3mvUTAY'
+    # selected_data = data[data["videoId"] == vid_id]
+    # print(f'selected data: {len(selected_data)}')
+
     vids = list(data["videoId"].values)
     durations = list(data["duration"].values)
     video_dir = "vids"
