@@ -17,7 +17,7 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from transformers import BertTokenizer
 from data.youtube_dataset import YoutubeClipDataset, YoutubeAllClipDataset
-from data.infer_youtube_video_dataset import InferYoutubeClipDataset
+from data.infer_youtube_video_dataset import InferYoutubeClipDataset, InferYoutubeAllClipDataset
 from model.lang import bert_hugface
 from model.vision import resnet50_tsm, resnet50
 from model.fusion import two_stream
@@ -120,6 +120,12 @@ class Trainer:
         pbar = tqdm(enumerate(loader), total=len(loader))
 
         for it, (img_clip, text_ids, attention_mask, label) in pbar:
+            if not is_train:
+                print(f'img_clip: {img_clip.shape}')
+                print(f'text_ids: {text_ids.shape}')
+                print(f'attention_mask: {attention_mask.shape}')
+                print(f'label: {label}')
+
         # for it, (img_clips, text_ids, attention_masks, label, target_idx) in pbar:
             
         #     print(f'img_clips: {img_clips.shape}')
@@ -286,10 +292,10 @@ if __name__ == "__main__":
     ckpt_path = f"/home/work/VCG/Video-Chapter-Generation/video_chapter_generation/checkpoint/test/head_{args.head_type}_batch_{batch_size}/checkpoint.pth"
     img_dir = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/youtube_video_frame_dataset"
     data_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/all_in_one_with_subtitle_final.csv"
-    test_clips_json = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/validation_clips_clip_frame_num_{clip_frame_num}.json"
+    test_clips_json = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/debugging_val_clips_clip_frame_num_{clip_frame_num}.json"
 
     train_vid_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/debugging_train.txt"
-    test_vid_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/final_validation.txt"
+    test_vid_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/debugging_validation.txt"
     tensorboard_log = os.path.dirname(ckpt_path)
     tensorboard_writer = SummaryWriter(tensorboard_log)
 
@@ -357,8 +363,9 @@ if __name__ == "__main__":
     ])
     
     train_dataset = YoutubeClipDataset(img_dir, data_file, train_vid_file, tokenizer, clip_frame_num, max_text_len, mode=args.data_mode, transform=train_vision_preprocess)
-    # train_dataset = YoutubeAllClipDataset(img_dir, data_file, train_vid_file, tokenizer, clip_frame_num, max_text_len, mode=args.data_mode, transform=train_vision_preprocess)
     test_dataset = InferYoutubeClipDataset(img_dir, test_clips_json, tokenizer, clip_frame_num, max_text_len, mode=args.data_mode, transform=test_vision_preprocess)
+    # train_dataset = YoutubeAllClipDataset(img_dir, data_file, train_vid_file, tokenizer, clip_frame_num, max_text_len, mode=args.data_mode, transform=train_vision_preprocess)
+    # test_dataset = InferYoutubeAllClipDataset(img_dir, test_clips_json, tokenizer, clip_frame_num, max_text_len, mode=args.data_mode, transform=test_vision_preprocess)
 
     # initialize a trainer instance and kick off training
     tconf = TrainerConfig(data_mode=args.data_mode, max_epochs=args.epoch,
