@@ -1,6 +1,5 @@
 """
 train chapter title genration model
-
 """
 
 import math
@@ -65,11 +64,54 @@ class Trainer:
             # self.model = torch.nn.DataParallel(self.model).to(self.device)
     
     def save_checkpoint(self, epoch, best_result):
-        # DataParallel wrappers keep raw model object in .module attribute
-        raw_model = self.model.module if hasattr(self.model, "module") else self.model
-        os.makedirs(os.path.dirname(self.config.ckpt_path), exist_ok=True)
-        print("saving %s" % self.config.ckpt_path)
-        torch.save({"epoch": epoch, "best_result": best_result, "model_state_dict": raw_model.state_dict()}, self.config.ckpt_path)
+        try:
+            # DataParallel wrappers keep raw model object in .module attribute
+            raw_model = self.model.module if hasattr(self.model, "module") else self.model
+
+            checkpoint_dir = os.path.join(self.config.ckpt_path, f"checkpoint-{epoch}")
+            os.makedirs(checkpoint_dir, exist_ok=True)
+
+            checkpoint_path = os.path.join(checkpoint_dir, f"checkpoint_{epoch}.pth")
+
+            checkpoint_dirs = []
+            for d in os.listdir(self.config.ckpt_path):
+                if d.startswith('checkpoint-') and os.path.isdir(os.path.join(self.config.ckpt_path, d)):
+                    checkpoint_dirs.append(d)
+            
+            if len(checkpoint_dirs) > 10:
+                checkpoint_dirs.sort(key=lambda x: int(x.split('-')[1]))
+                oldest_dir = os.path.join(self.config.ckpt_path, checkpoint_dirs[0])
+                if os.path.exists(oldest_dir):
+                    try:
+                        for f in os.listdir(oldest_dir):
+                            os.remove(os.path.join(oldest_dir, f))
+                        os.rmdir(oldest_dir)
+                        print(f"Removed old checkpoint: {oldest_dir}")
+                    except Exception as e:
+                        print(f"Warning: Failed to remove old checkpoint {oldest_dir}: {e}")
+            
+            print(f"Saving checkpoint to {checkpoint_path}")
+            torch.save({
+                "epoch": epoch,
+                "best_result": best_result,
+                "model_state_dict": raw_model.state_dict(),
+                "optimizer_state_dict": self.optimizer.state_dict()
+                }, checkpoint_path)
+
+            latest_best_path = os.path.join(self.config.ckpt_path, "checkpoint_best.pth")
+            checkpoint_abs_path = os.path.abspath(checkpoint_path)
+
+            if os.path.exists(latest_best_path):
+                if os.path.islink(latest_best_path):
+                    os.remove(latest_best_path)
+                else:
+                    os.remove(latest_best_path)
+            os.symlink(checkpoint_abs_path, latest_best_path)
+            
+            print(f"Saved checkpoint at epoch {epoch} with best result {best_result}")
+        except Exception as e:
+            print(f"Error saving checkpoint: {e}")
+            raise
 
 
     def train(self):
@@ -80,7 +122,7 @@ class Trainer:
         test_result = float('-inf')
         for epoch in range(self.config.max_epochs):
             train_acc = self.run_epoch('train', epoch)
-            if self.test_dataset is not None and epoch % 20 == 0:
+            if self.test_dataset is not None and epoch % 10 == 0:
                 test_result = self.run_epoch('test', epoch)
 
             # supports early stopping based on the test loss, or just save always if no test set is provided
@@ -195,32 +237,32 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description='video chapter title generation model')
     parser.add_argument('--gpu', default=0, type=int)
-    parser.add_argument('--epoch', default=3000, type=int)
-    parser.add_argument('--batch_size', default=64, type=int)
+    parser.add_argument('--epoch', default=1000, type=int)
+    parser.add_argument('--batch_size', default=16, type=int)
     parser.add_argument('--lr_decay_type', default="cosine", type=str)
     parser.add_argument('--model_type', default="pegasus", type=str)
     parser.add_argument('--fusion_type', default="cross_attn", type=str)
     args = parser.parse_args()
 
-    ckpt_path = f"/opt/tiger/video_chapter_generation/checkpoint/chapter_title_gen_vision_emb/chapter_title_hugface_{args.model_type}_{args.fusion_type}_validation/batch_{args.batch_size}_lr_decay_{args.lr_decay_type}/checkpoint.pth"
-    data_file = "/opt/tiger/video_chapter_youtube_dataset/dataset/all_in_one_with_subtitle.csv"
-    vision_emb_dir = "/opt/tiger/youtube_video_vision_emb_clip_frame_num_16"
-    train_vid_file = "/opt/tiger/video_chapter_youtube_dataset/dataset/new_train.txt"
-    test_vid_file = "/opt/tiger/video_chapter_youtube_dataset/dataset/new_validation.txt"
+    ckpt_path = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/chapter_title_gen_vision_emb/{args.model_type}_batch_{args.batch_size}"
+    data_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/all_in_one_with_subtitle_final.csv"
+    vision_emb_dir = "/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/youtube_video_vision_emb_clip_frame_num_16"
+    train_vid_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/final_train.txt"
+    test_vid_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/final_validation.txt"
     tensorboard_log = os.path.dirname(ckpt_path)
     tensorboard_writer = SummaryWriter(tensorboard_log)
 
     set_random_seed.use_fix_random_seed()
     batch_size = args.batch_size
-    num_workers = 16
+    num_workers = 8
     chapter_title_text_len = 30
     max_text_len = 512
 
     # tokenizer and model
     tokenizer = PegasusTokenizer.from_pretrained('google/pegasus-large')
     model = pegasus_vision_emb.PegasusVisionEmb(reinit_head=True, fusion_type=args.fusion_type).to(args.gpu)
-    model = torch.nn.DataParallel(model, device_ids=[0, 1, 2, 3, 4, 5, 6, 7])
-    
+    model = torch.nn.DataParallel(model, device_ids=[0, 1])
+
     # dataset
     train_dataset = YoutubeChapterTitleWithVisionEmbDataset(vision_emb_dir, data_file, train_vid_file, tokenizer, max_text_len, chapter_title_text_len)
     test_dataset = YoutubeChapterTitleWithVisionEmbDataset(vision_emb_dir, data_file, test_vid_file, tokenizer, max_text_len, chapter_title_text_len)
@@ -232,9 +274,3 @@ if __name__ == "__main__":
     trainer = Trainer(model, tokenizer, train_dataset, test_dataset, tconf)
     trainer.device = args.gpu
     trainer.train()
-
-
-
-
-
-

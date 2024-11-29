@@ -38,7 +38,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     checkpoint_dir = f"{args.model_type}_batch_{args.batch_size}"
-    ckpt_path = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/chapter_title_gen/{checkpoint_dir}/checkpoint.pth"
+    ckpt_path = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/chapter_title_gen_vision_emb/{checkpoint_dir}/checkpoint-120/checkpoint_120.pth"
     data_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/all_in_one_with_subtitle_final.csv"
     train_vid_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/final_train.txt"
     test_vid_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/final_test.txt"
@@ -49,9 +49,9 @@ if __name__ == "__main__":
     # for title summarization based on predicted cut points
     vid2cut_points_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/test_results/head_mlp_batch_16_vid2cut_points.json"
     if args.location_type == "gt":
-        result_file = f"./test_results/chapter_title_gen/{checkpoint_dir}.txt"
+        result_file = f"./test_results/chapter_title_gen_vision_emb/{checkpoint_dir}_120.txt"
     else:
-        result_file = f"./test_results/chapter_title_gen/{checkpoint_dir}_vid_pred_cut_points.txt"
+        result_file = f"./test_results/chapter_title_gen_vision_emb/{checkpoint_dir}_vid_pred_cut_points.txt"
     
 
     # other hyperparameters

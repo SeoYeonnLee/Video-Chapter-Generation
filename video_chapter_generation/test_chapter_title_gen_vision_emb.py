@@ -38,22 +38,22 @@ if __name__ == "__main__":
     parser.add_argument('--fusion_type', default="cross_attn", type=str)    # gt or pred
     args = parser.parse_args()
 
-    vision_emb_dir = "/opt/tiger/youtube_video_vision_emb_clip_frame_num_16"
-    checkpoint_dir = f"chapter_title_hugface_{args.model_type}_{args.fusion_type}_validation/batch_64_lr_decay_cosine"
-    ckpt_path = f"/opt/tiger/video_chapter_generation/checkpoint/chapter_title_gen_vision_emb/{checkpoint_dir}/checkpoint.pth"
-    data_file = "/opt/tiger/video_chapter_youtube_dataset/dataset/all_in_one_with_subtitle.csv"
-    train_vid_file = "/opt/tiger/video_chapter_youtube_dataset/dataset/new_train.txt"
-    test_vid_file = "/opt/tiger/video_chapter_youtube_dataset/dataset/new_test.txt"
-    test_easy_vid_file = f"/opt/tiger/video_chapter_youtube_dataset/dataset/easy_test_vid.txt"
-    test_hard_vid_file = f"/opt/tiger/video_chapter_youtube_dataset/dataset/hard_test_vid.txt"
+    vision_emb_dir = "/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/youtube_video_vision_emb_clip_frame_num_16"
+    checkpoint_dir = f"{args.model_type}_batch_{args.batch_size}"
+    ckpt_path = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/chapter_title_gen_vision_emb/{checkpoint_dir}/checkpoint-50/checkpoint_50.pth"
+    data_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/all_in_one_with_subtitle_final.csv"
+    train_vid_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/final_train.txt"
+    test_vid_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/final_test.txt"
+    # test_easy_vid_file = f"/opt/tiger/video_chapter_youtube_dataset/dataset/easy_test_vid.txt"
+    # test_hard_vid_file = f"/opt/tiger/video_chapter_youtube_dataset/dataset/hard_test_vid.txt"
     # result_file = f"./test_results/chapter_title_gen/{checkpoint_dir}_{args.data_mode}_vid.txt"
 
     # for title summarization based on predicted cut points
-    vid2cut_points_file = "/opt/tiger/video_chapter_generation/test_results/all/two_stream_validation/batch_32_head_type_mlp_clip_frame_num_16_all_vid2cut_points.json"
+    vid2cut_points_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/test_results/head_mlp_batch_16_vid2cut_points.json"
     if args.location_type == "gt":
-        result_file = f"./test_results/chapter_title_gen_vision_emb/{checkpoint_dir}_{args.data_mode}.txt"
+        result_file = f"./test_results/chapter_title_gen_vision_emb/{checkpoint_dir}_50.txt"
     else:
-        result_file = f"./test_results/chapter_title_gen_vision_emb/{checkpoint_dir}_{args.data_mode}_vid_pred_cut_points.txt"
+        result_file = f"./test_results/chapter_title_gen_vision_emb/{checkpoint_dir}_vid_pred_cut_points.txt"
 
     # other hyperparameters
     num_workers = 8

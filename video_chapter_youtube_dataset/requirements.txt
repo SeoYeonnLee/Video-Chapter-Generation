@@ -2,3 +2,6 @@ youtube_transcript_api==0.4.1
 beautifulsoup4==4.9.3
 youtube_dl==2021.6.6
 yt_dlp
+einops
+sentencepiece
+rouge

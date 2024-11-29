@@ -18,6 +18,7 @@ import os, sys, time
 from torch.utils.data import DataLoader, ConcatDataset
 from data.common_utils import parse_csv_to_list, extract_first_timestamp, load_glove_from_pickle, text_decontracted
 from transformers import OpenAIGPTTokenizer, BertTokenizer
+from typing import Union, List, Dict
 
 
 X_PAD = 0
@@ -212,10 +213,10 @@ class InferYoutubeVideoDataset:
 
 
 class InferYoutubeClipDataset:
-    def __init__(self, img_dir, test_clips_json, tokenizer, clip_frame_num, max_text_len, mode="all", transform=None, target_transform=None):
+    def __init__(self, img_dir, json_paths, tokenizer, clip_frame_num, max_text_len, mode="all", transform=None, target_transform=None):
         """
         Flat all video data to clips, so that we can testing quickly
-        **** Note that you need to run flat_video2clip_for_quick_infer.py in video_chapter_youtube_dataset project to generate test_clips_json file
+        ** Note that you need to run flat_video2clip_for_quick_infer.py in video_chapter_youtube_dataset project to generate test_clips_json file
         """
         self.max_offset = 2      # positive clip if the distance to GT < 2 offset
         self.tokenizer = tokenizer
@@ -225,9 +226,16 @@ class InferYoutubeClipDataset:
         self.half_clip_frame_num = int(self.clip_frame_num//2)
         self.img_dir = img_dir
 
-        with open(test_clips_json, "r") as f:
-            self.all_clip_infos = json.load(f)
-        
+        if isinstance(json_paths, list):
+            self.all_clip_infos = []
+            for file_path in json_paths:
+                with open(file_path, 'r', encoding='utf-8') as file:
+                    data = json.load(file)
+                    self.all_clip_infos.extend(data)
+        elif isinstance(json_paths, str):
+            with open(json_paths, "r") as f:
+                self.all_clip_infos = json.load(f)
+
         # # select specific vid for debug
         # debug_data = []
         # for clip_info in self.all_clip_infos:
@@ -238,12 +246,10 @@ class InferYoutubeClipDataset:
 
         self.transform = transform
         self.target_transform = target_transform
-    
 
     def __len__(self):
         return len(self.all_clip_infos)
         # return len(self.all_clip_infos) // 100
-
 
     def __getitem__(self, i):
         clip_info = self.all_clip_infos[i]
@@ -254,7 +260,7 @@ class InferYoutubeClipDataset:
         # cut_points = clip_info["cut_points"]
         # clip_start_sec, clip_end_sec = clip_info["clip_start_end"]
         # vid = clip_info["vid"]
-        
+
         # convert text to ids
         # put [CLS] at the first, so that we can train sentence representation after pretrained
         text_clip = "[CLS] " + text_clip
@@ -274,7 +280,7 @@ class InferYoutubeClipDataset:
 
         text_ids = torch.from_numpy(np.array(ids)).long()
         attention_mask = torch.from_numpy(np.array(attention_mask)).long()
-        
+
         if self.mode == "text":
             img_clip = 0    # dummy image
         else:
@@ -293,16 +299,15 @@ class InferYoutubeClipDataset:
             # print(label)
 
             # h, w, c = img.shape
-            # clip_whole_image = np.zeros((h, w*len(img_list), c), dtype=np.uint8)
+            # clip_whole_image = np.zeros((h, wlen(img_list), c), dtype=np.uint8)
             # for idx, im in enumerate(img_list):
-            #     clip_whole_image[:, idx*w:(idx+1)*w, :] = im
+            #     clip_whole_image[:, idxw:(idx+1)*w, :] = im
             # im = Image.fromarray(clip_whole_image)
             # im.save("./clip.jpg")
             # # plt.imshow(clip_whole_image)
             # # plt.show()
 
         return img_clip, text_ids, attention_mask, label
-
 
 
 

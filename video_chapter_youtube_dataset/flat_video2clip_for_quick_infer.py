@@ -63,7 +63,7 @@ def flat_videos2clips(img_dir, data_file, test_vid_file, clip_frame_num=16):
 
         # go through all clips within this video
         max_offset = 2
-        clips = [[start_t, start_t + clip_frame_num] for start_t in range(0, image_num - clip_frame_num, 2 * max_offset)]
+        clips = [[start_t, start_t + clip_frame_num] for start_t in range(0, image_num - clip_frame_num, 8 * max_offset)]
         batch_num = len(clips)
         for batch_i in range(batch_num):
             # this clip's start and end time
@@ -137,8 +137,9 @@ if __name__ == "__main__":
     img_dir = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/youtube_video_frame_dataset"
     data_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/all_in_one_with_subtitle_final.csv"
     # test_vid_file = "/opt/tiger/video_chapter_youtube_dataset/dataset/test.txt"
-    test_vid_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/final_test.txt"
-    # test_vid_file = "/opt/tiger/video_chapter_youtube_dataset/dataset/new_all_vids.txt"
+    # test_vid_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/final_test.txt"
+    # train_vid_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/final_train.txt"
+    test_vid_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/debugging_val.txt"
 
 
     clip_frame_num = args.clip_frame_num
@@ -146,7 +147,7 @@ if __name__ == "__main__":
 
     # save all test clips
     # save_json_file = f"/opt/tiger/video_chapter_youtube_dataset/dataset/test_clips_clip_frame_num_{clip_frame_num}.json"
-    save_json_file = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/test_clips_clip_frame_num_{clip_frame_num}.json"
+    save_json_file = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/debugging_val_clips_clip_frame_num_{clip_frame_num}.json"
     # save_json_file = f"/opt/tiger/video_chapter_youtube_dataset/dataset/all_clips_clip_frame_num_{clip_frame_num}.json"
     with open(save_json_file, "w") as f:
         json.dump(all_clip_infos, f)

@@ -1,6 +1,5 @@
 """
 train chapter title genration model
-
 """
 
 import math
@@ -41,7 +40,7 @@ class TrainerConfig:
     warmup_epochs = 30 
     final_epoch = 2700 
     # checkpoint settings
-    ckpt_path = None
+    ckpt_dir = None
     num_workers = 0    # for DataLoader
     # tensorboard writer
     tensorboard_writer = None
@@ -58,7 +57,6 @@ class Trainer:
         self.train_dataset = train_dataset
         self.test_dataset = test_dataset
         self.config = config
-
         # take over whatever gpus are on the system
         # self.device = 'cpu'
         # if torch.cuda.is_available():
@@ -67,18 +65,61 @@ class Trainer:
             # self.model = torch.nn.DataParallel(self.model).to(self.device)
     
     def save_checkpoint(self, epoch, best_result):
-        # DataParallel wrappers keep raw model object in .module attribute
-        raw_model = self.model.module if hasattr(self.model, "module") else self.model
-        os.makedirs(os.path.dirname(self.config.ckpt_path), exist_ok=True)
-        print("saving %s" % self.config.ckpt_path)
-        torch.save({"epoch": epoch, "best_result": best_result, "model_state_dict": raw_model.state_dict()}, self.config.ckpt_path)
+        try:
+            # DataParallel wrappers keep raw model object in .module attribute
+            raw_model = self.model.module if hasattr(self.model, "module") else self.model
+
+            checkpoint_dir = os.path.join(self.config.ckpt_dir, f"checkpoint-{epoch}")
+            os.makedirs(checkpoint_dir, exist_ok=True)
+
+            checkpoint_path = os.path.join(checkpoint_dir, f"checkpoint_{epoch}.pth")
+
+            checkpoint_dirs = []
+            for d in os.listdir(self.config.ckpt_dir):
+                if d.startswith('checkpoint-') and os.path.isdir(os.path.join(self.config.ckpt_dir, d)):
+                    checkpoint_dirs.append(d)
+            
+            if len(checkpoint_dirs) > 10:
+                checkpoint_dirs.sort(key=lambda x: int(x.split('-')[1]))
+                oldest_dir = os.path.join(self.config.ckpt_dir, checkpoint_dirs[0])
+                if os.path.exists(oldest_dir):
+                    try:
+                        for f in os.listdir(oldest_dir):
+                            os.remove(os.path.join(oldest_dir, f))
+                        os.rmdir(oldest_dir)
+                        print(f"Removed old checkpoint: {oldest_dir}")
+                    except Exception as e:
+                        print(f"Warning: Failed to remove old checkpoint {oldest_dir}: {e}")
+            
+            print(f"Saving checkpoint to {checkpoint_path}")
+            torch.save({
+                "epoch": epoch,
+                "best_result": best_result,
+                "model_state_dict": raw_model.state_dict(),
+                "optimizer_state_dict": self.optimizer.state_dict()
+                }, checkpoint_path)
+
+            latest_best_path = os.path.join(self.config.ckpt_dir, "checkpoint_best.pth")
+            checkpoint_abs_path = os.path.abspath(checkpoint_path)
+
+            if os.path.exists(latest_best_path):
+                if os.path.islink(latest_best_path):
+                    os.remove(latest_best_path)
+                else:
+                    os.remove(latest_best_path)
+            os.symlink(checkpoint_abs_path, latest_best_path)
+            
+            print(f"Saved checkpoint at epoch {epoch} with best result {best_result}")
+        except Exception as e:
+            print(f"Error saving checkpoint: {e}")
+            raise
 
 
     def train(self):
         raw_model = self.model.module if hasattr(self.model, "module") else self.model
         self.optimizer = raw_model.configure_optimizers(self.config)
 
-        best_result = float('-inf')
+        best_result = self.config.best_result
 
         test_result = float('-inf')
         for epoch in range(self.config.start_epoch, self.config.max_epochs):
@@ -87,8 +128,8 @@ class Trainer:
                 test_result = self.run_epoch('test', epoch)
 
             # supports early stopping based on the test loss, or just save always if no test set is provided
-            good_model = self.test_dataset is None or test_result > best_result
-            if self.config.ckpt_path is not None and good_model:
+            # good_model = self.test_dataset is None or test_result > best_result
+            if self.config.ckpt_dir is not None and (self.test_dataset is None or test_result > best_result):
                 best_result = test_result
                 self.save_checkpoint(epoch, best_result)
     
@@ -196,19 +237,19 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description='video chapter title generation model')
     parser.add_argument('--gpu', default=0, type=int)
-    parser.add_argument('--epoch', default=300, type=int)
+    parser.add_argument('--epoch', default=2700, type=int)
     parser.add_argument('--batch_size', default=16, type=int)
     parser.add_argument('--lr_decay_type', default="cosine", type=str)
     parser.add_argument('--model_type', default="pegasus", type=str)
     args = parser.parse_args()
 
-    ckpt_path = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/chapter_title_gen/{args.model_type}_batch_{args.batch_size}/checkpoint.pth"
+    ckpt_dir = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/chapter_title_gen/{args.model_type}_batch_{args.batch_size}"
     data_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/all_in_one_with_subtitle_final.csv"
     # train_vid_file = "/opt/tiger/video_chapter_youtube_dataset/dataset/train.txt"
     # test_vid_file = "/opt/tiger/video_chapter_youtube_dataset/dataset/test.txt"
     train_vid_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/final_train.txt"
     test_vid_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/final_validation.txt"
-    tensorboard_log = os.path.dirname(ckpt_path)
+    tensorboard_log = os.path.dirname(ckpt_dir)
     tensorboard_writer = SummaryWriter(tensorboard_log)
 
     set_random_seed.use_fix_random_seed()
@@ -230,12 +271,19 @@ if __name__ == "__main__":
         raise RuntimeError(f"Unknown model_type {args.model_type}")
 
     
-    if os.path.exists(ckpt_path):
-        checkpoint = torch.load(ckpt_path)
-        start_epoch = checkpoint["epoch"]
-        best_result = checkpoint["best_result"]
-        model.load_state_dict(checkpoint["model_state_dict"])
-        print(f"Checkpoint loaded: Starting from epoch {start_epoch} with best result {best_result}")
+    # if os.path.exists(ckpt_path):
+    #     checkpoint = torch.load(ckpt_path)
+    #     start_epoch = checkpoint["epoch"]
+    #     print(f'start epoch : {start_epoch}')
+    #     best_result = checkpoint["best_result"]
+    #     print(f'best result : {best_result}')
+    #     model.load_state_dict(checkpoint["model_state_dict"])
+    #     # if 'optimizer_state_dict' in checkpoint:
+    #     #     optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+    #     #     print('Optimizer state loaded from checkpoint.')
+    #     # else:
+    #     #     print("Optimizer state not found in checkpoint. Proceeding without loading optimizer state.")
+    #     print(f"Checkpoint loaded: Starting from epoch {start_epoch} with best result {best_result}")
 
     model = torch.nn.DataParallel(model, device_ids=[0, 1])
     
@@ -246,13 +294,7 @@ if __name__ == "__main__":
     # initialize a trainer instance and kick off training
     tconf = TrainerConfig(max_epochs=args.epoch, start_epoch=start_epoch, best_result=best_result, batch_size=batch_size, learning_rate=1e-5, block_size=max_text_len,
                         lr_decay_type=args.lr_decay_type, lr_decay=True, warmup_epochs=args.epoch//100, final_epochs=args.epoch//100*90,
-                        num_workers=num_workers, ckpt_path=ckpt_path, tensorboard_writer=tensorboard_writer)
+                        num_workers=num_workers, ckpt_dir=ckpt_dir, tensorboard_writer=tensorboard_writer)
     trainer = Trainer(model, tokenizer, train_dataset, test_dataset, tconf)
     trainer.device = args.gpu
     trainer.train()
-
-
-
-
-
-
