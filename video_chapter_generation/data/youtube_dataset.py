@@ -66,31 +66,23 @@ class YoutubeClipDataset:
 
         with open(asr_file, "r") as f:
             subtitles = json.load(f)
-        
-        # if vid == 'Dstd3mvUTAY':
-        # print(f'image num: {image_num}')
-        # print(f'timestamp: {timestamp}')
+            
         # parse timestamp
         cut_points = []         # G.T. cut point + a little bit offset
-        real_cut_points = []    # record G.T. cut point
-        descriptions = []
+        #!! real_cut_points = []    # record G.T. cut point
+        #!! descriptions = []
         for timestamp_str in timestamp:
             sec, description = extract_first_timestamp(timestamp_str)
-            # if vid == 'Dstd3mvUTAY':
-            # print(f'sec: {sec}')
-            # print(f'description: {description}')
                 
             if sec < 4:
                 continue
             # if sec > image_num - 4:
             if sec > image_num:
-                print(f'vid: {vid}')
-                print(f'sec: {sec}, image num: {image_num}')
                 continue
             
             cut_points.append(sec)
-            real_cut_points.append(sec)
-            descriptions.append(description)
+            #!! real_cut_points.append(sec)
+            #!! descriptions.append(description)
 
         ### 1. segment timeline
         max_offset = 2      # positive clip if the distance to GT < 2 offset 
@@ -123,6 +115,7 @@ class YoutubeClipDataset:
 
         
         ### 3. sample positive or negative clip
+
         if not pos_clip_indices: # 모든 clip의 chapter 구분점이 없는 경우 negative로 sampling
             is_positive = 0
         else:
@@ -190,29 +183,329 @@ class YoutubeClipDataset:
                 img = Image.open(image_filename).convert('RGB')
                 img = self.transform(img)
                 img_list.append(img)
+
             img_clip = torch.stack(img_list, dim=0) # 해당 clip 내의 frame 추출
-            # img_clip = 0
-
-            # visualize this clip
-            # print(f"https://www.youtube.com/watch?v={vid}&t={clip_start_sec}")
-            # print(f"{clip_start_sec} - {clip_end_sec}")
-            # print(text_clip)
-            # print(label)
-
-            # h, w = img.size
-            # clip_whole_image = np.zeros((h, w*len(img_list), 3), dtype=np.uint8)
-            # for idx, im in enumerate(img_list):
-            #     clip_whole_image[:, idx*w:(idx+1)*w, :] = im
-            # im = Image.fromarray(clip_whole_image)
-            # im.save("./clip.jpg")
-            # # plt.imshow(clip_whole_image)
-            # # plt.show()
-            # print()
-        
-        # visualize text
-        # print(f"vid {vid}, label {label}, {clip_start_sec} - {clip_end_sec}, {text_clip}")
 
         return img_clip, text_ids, attention_mask, label
+
+    def __len__(self):
+        return len(self.vids)
+
+class YoutubeAllClipDataset:
+    def __init__(self, img_dir, data_file, vid_file, tokenizer, clip_frame_num, max_text_len, mode="all", transform=None, target_transform=None):
+        """
+        Sample a positive or negative clip from dataset  
+        Note that the video frame is sampled by 1 frame/second
+        """
+        self.tokenizer = tokenizer
+        self.clip_frame_num = clip_frame_num
+        self.max_text_len = max_text_len
+        self.mode = mode        # text (text only), image (image only) or all (multiple-model)
+        self.half_clip_frame_num = int(self.clip_frame_num//2)
+        self.img_dir = img_dir
+        all_vids, titles, durations, timestamps = parse_csv_to_list(data_file)
+        self.vid2title = dict()
+        self.vid2timestamps = dict()
+        self.vid2durations = dict()
+        for i in range(len(all_vids)):
+            vid = all_vids[i]
+            self.vid2title[vid] = titles[i]
+            self.vid2timestamps[vid] = timestamps[i]
+            self.vid2durations[vid] = durations[i]
+
+        with open(vid_file, "r") as f:
+            vids = f.readlines()
+            vids = [x.strip() for x in vids]
+        self.vids = vids
+
+        # asr files
+        asr_file_list = glob.glob(os.path.dirname(data_file) + "/*/subtitle_*.json")
+        self.vid2asr_files = dict()
+        for asr_file in asr_file_list:
+            filename = os.path.basename(asr_file)
+            vid = filename.split(".")[0][9:]
+            self.vid2asr_files[vid] = asr_file
+
+        self.transform = transform
+        self.target_transform = target_transform
+
+    def __getitem__(self, i):
+        vid = self.vids[i]
+        timestamp = self.vid2timestamps[vid]
+        asr_file = self.vid2asr_files[vid]
+        image_path = os.path.join(self.img_dir, vid)
+        image_num = len(glob.glob(image_path + "/*.jpg"))
+        # image_num = round(self.vid2durations[vid] - 1)    # equal to video total duration (seconds)
+
+        with open(asr_file, "r") as f:
+            subtitles = json.load(f)
+            
+        # parse timestamp
+        cut_points = []         # G.T. cut point + a little bit offset
+        #!! real_cut_points = []    # record G.T. cut point
+        #!! descriptions = []
+        for timestamp_str in timestamp:
+            sec, description = extract_first_timestamp(timestamp_str)
+                
+            if sec < 4:
+                continue
+            # if sec > image_num - 4:
+            if sec > image_num:
+                continue
+            
+            cut_points.append(sec)
+            #!! real_cut_points.append(sec)
+            #!! descriptions.append(description)
+
+        ### 1. segment timeline
+        max_offset = 2      # positive clip if the distance to GT < 2 offset 
+        clips = [[start_t, start_t + self.clip_frame_num] for start_t in range(0, image_num - self.clip_frame_num, 16 * max_offset)]
+        assert clips[-1][1] <= image_num
+
+        ### 2. calculate positive or negative
+        #!! clip_labels = []
+        pos_clip_indices = []
+        neg_clip_indices = []
+        for idx, clip in enumerate(clips):
+            start_t, end_t = clip
+            label = 0
+            for cut_point in cut_points:
+                cut_point_start_t = cut_point - self.half_clip_frame_num
+                cut_point_end_t = cut_point + self.half_clip_frame_num
+                a = max(start_t, cut_point_start_t)
+                mi = min(start_t, cut_point_start_t)
+                b = min(end_t, cut_point_end_t)
+                ma = max(end_t, cut_point_end_t)
+                iou = (b - a) / (ma - mi) 
+                if iou >= (self.clip_frame_num - max_offset) / (self.clip_frame_num + max_offset):
+                    label = 1
+                    break
+            if label == 1:
+                pos_clip_indices.append(idx)
+            else:
+                neg_clip_indices.append(idx)
+            #!! clip_labels.append(label)
+
+        
+        ### 3. sample positive or negative clip
+        #!!
+        # Select target clip
+        is_positive = random.choice([0, 1]) if pos_clip_indices else 0
+        target_idx = random.choice(pos_clip_indices if is_positive else neg_clip_indices)
+
+        all_clip_images = []
+        all_text_ids = []
+        all_attention_masks = []
+
+        for clip_idx, clip in enumerate(clips):
+            # Get images for current clip
+            start_sec, end_sec = clip
+            clip_imgs = []
+            for idx in range(start_sec, end_sec):
+                if start_sec <= 2 or start_sec >= image_num - self.clip_frame_num - 2:
+                    image_filename = f"{idx+1:05d}.jpg"
+                else:
+                    image_filename = f"{idx+3:05d}.jpg"
+                image_path = os.path.join(self.img_dir, vid, image_filename)
+                img = Image.open(image_path).convert('RGB')
+                if self.transform:
+                    img = self.transform(img)
+                clip_imgs.append(img)
+            all_clip_images.append(torch.stack(clip_imgs))
+
+            # Get text for current clip
+            text_clip = "[CLS] "
+            text_extra_time_gap = 1
+            for sub in subtitles:
+                if start_sec - text_extra_time_gap < sub["start"] < end_sec + text_extra_time_gap:
+                    text_clip += sub["text"] + " "
+
+            # Tokenize text
+            tokens = self.tokenizer.tokenize(text_clip)[:self.max_text_len]
+            attention_mask = [1] * len(tokens)
+            padding_length = self.max_text_len - len(tokens)
+            if padding_length > 0:
+                tokens.extend(["[PAD]"] * padding_length)
+                attention_mask.extend([0] * padding_length)
+
+            text_ids = torch.tensor(self.tokenizer.convert_tokens_to_ids(tokens))
+            attention_mask = torch.tensor(attention_mask)
+            
+            all_text_ids.append(text_ids)
+            all_attention_masks.append(attention_mask)
+
+        # Stack all tensors
+        img_clips = torch.stack(all_clip_images)  # [num_clips, num_frames, C, H, W]
+        text_ids = torch.stack(all_text_ids)      # [num_clips, max_text_len]
+        attention_masks = torch.stack(all_attention_masks)  # [num_clips, max_text_len]
+        label = torch.tensor(1 if is_positive else 0)
+
+        # print(f'img_clips: {img_clips.shape}')
+        # print(f'text_ids: {text_ids.shape}')
+        # print(f'attention_masks: {attention_masks.shape}')
+        # print(f'label: {label}')
+        # print(f'target_idx: {target_idx}')
+
+        return img_clips, text_ids, attention_masks, label, torch.tensor(target_idx)
+
+    def __len__(self):
+        return len(self.vids)
+
+class WindowClipDataset:
+    def __init__(self, img_dir, data_file, vid_file, tokenizer, clip_frame_num, max_text_len, window_size=2, mode="all", transform=None):
+        self.tokenizer = tokenizer
+        self.clip_frame_num = clip_frame_num
+        self.max_text_len = max_text_len
+        self.window_size = window_size
+        self.mode = mode
+        self.half_clip_frame_num = int(self.clip_frame_num//2)
+        self.img_dir = img_dir
+
+        # Load video info
+        all_vids, titles, durations, timestamps = parse_csv_to_list(data_file)
+        self.vid2title = {all_vids[i]: titles[i] for i in range(len(all_vids))}
+        self.vid2timestamps = {all_vids[i]: timestamps[i] for i in range(len(all_vids))}
+        self.vid2durations = {all_vids[i]: durations[i] for i in range(len(all_vids))}
+
+        # Load video IDs
+        with open(vid_file, "r") as f:
+            self.vids = [x.strip() for x in f.readlines()]
+
+        # Load ASR files
+        asr_file_list = glob.glob(os.path.dirname(data_file) + "/*/subtitle_*.json")
+        self.vid2asr_files = {}
+        for asr_file in asr_file_list:
+            filename = os.path.basename(asr_file)
+            vid = filename.split(".")[0][9:]
+            self.vid2asr_files[vid] = asr_file
+
+        self.transform = transform
+
+    def __getitem__(self, i):
+        vid = self.vids[i]
+        timestamp = self.vid2timestamps[vid]
+        asr_file = self.vid2asr_files[vid]
+        image_path = os.path.join(self.img_dir, vid)
+        image_num = len(glob.glob(image_path + "/*.jpg"))
+
+        with open(asr_file, "r") as f:
+            subtitles = json.load(f)
+            
+        # Get cut points
+        cut_points = []
+        for timestamp_str in timestamp:
+            sec, _ = extract_first_timestamp(timestamp_str)
+            if sec < 4 or sec > image_num:
+                continue
+            cut_points.append(sec)
+
+        # Segment into clips
+        max_offset = 2      
+        clips = [[start_t, start_t + self.clip_frame_num] 
+                for start_t in range(0, image_num - self.clip_frame_num, 8 * max_offset)]
+        
+        # Get positive/negative clips
+        pos_clip_indices = []
+        neg_clip_indices = []
+        for idx, clip in enumerate(clips):
+            start_t, end_t = clip
+            label = 0
+            for cut_point in cut_points:
+                cut_point_start_t = cut_point - self.half_clip_frame_num
+                cut_point_end_t = cut_point + self.half_clip_frame_num
+                a = max(start_t, cut_point_start_t)
+                mi = min(start_t, cut_point_start_t)
+                b = min(end_t, cut_point_end_t)
+                ma = max(end_t, cut_point_end_t)
+                iou = (b - a) / (ma - mi) 
+                if iou >= (self.clip_frame_num - max_offset) / (self.clip_frame_num + max_offset):
+                    label = 1
+                    break
+            if label == 1:
+                pos_clip_indices.append(idx)
+            else:
+                neg_clip_indices.append(idx)
+
+        # Select target clip
+        is_positive = random.choice([0, 1]) if pos_clip_indices else 0
+        target_idx = random.choice(pos_clip_indices if is_positive else neg_clip_indices)
+
+        # Get window clips
+        window_indices = []
+        for idx in range(target_idx - self.window_size, target_idx + self.window_size + 1):
+            if 0 <= idx < len(clips):
+                window_indices.append(idx)
+            else:
+                window_indices.append(-1)  # Padding index
+
+        # Process clips within window
+        all_clip_images = []
+        all_text_ids = []
+        all_attention_masks = []
+
+        for idx in window_indices:
+            if idx == -1:
+                # Add zero padding
+                if self.mode != "text":
+                    padding_img = torch.zeros((self.clip_frame_num, 3, 224, 224))
+                    all_clip_images.append(padding_img)
+                
+                padding_text = torch.zeros(self.max_text_len, dtype=torch.long)
+                padding_mask = torch.zeros(self.max_text_len, dtype=torch.long)
+                
+                all_text_ids.append(padding_text)
+                all_attention_masks.append(padding_mask)
+                continue
+
+            clip = clips[idx]
+            start_sec, end_sec = clip
+
+            # Process images
+            if self.mode != "text":
+                clip_imgs = []
+                for frame_idx in range(start_sec, end_sec):
+                    if start_sec <= 2 or start_sec >= image_num - self.clip_frame_num - 2:
+                        image_filename = f"{frame_idx+1:05d}.jpg"
+                    else:
+                        image_filename = f"{frame_idx+3:05d}.jpg"
+                    image_path = os.path.join(self.img_dir, vid, image_filename)
+                    img = Image.open(image_path).convert('RGB')
+                    if self.transform:
+                        img = self.transform(img)
+                    clip_imgs.append(img)
+                all_clip_images.append(torch.stack(clip_imgs))
+
+            # Process text
+            text_clip = "[CLS] "
+            for sub in subtitles:
+                if start_sec - 1 < sub["start"] < end_sec + 1:
+                    text_clip += sub["text"] + " "
+
+            tokens = self.tokenizer.tokenize(text_clip)[:self.max_text_len]
+            attention_mask = [1] * len(tokens)
+            padding_length = self.max_text_len - len(tokens)
+            if padding_length > 0:
+                tokens.extend(["[PAD]"] * padding_length)
+                attention_mask.extend([0] * padding_length)
+
+            text_ids = torch.tensor(self.tokenizer.convert_tokens_to_ids(tokens))
+            attention_mask = torch.tensor(attention_mask)
+            
+            all_text_ids.append(text_ids)
+            all_attention_masks.append(attention_mask)
+
+        # Stack all tensors
+        if self.mode == "text":
+            img_clips = torch.tensor(0)
+        else:
+            img_clips = torch.stack(all_clip_images)  # [window_size*2+1, num_frames, C, H, W]
+            
+        text_ids = torch.stack(all_text_ids)          # [window_size*2+1, max_text_len]
+        attention_masks = torch.stack(all_attention_masks)  # [window_size*2+1, max_text_len]
+        label = torch.tensor(1 if is_positive else 0)
+        center_idx = self.window_size  # target clip은 항상 중앙에 위치
+
+        return img_clips, text_ids, attention_masks, label, torch.tensor(center_idx)
 
     def __len__(self):
         return len(self.vids)
@@ -413,7 +706,41 @@ class YoutubeListwiseClipDataset:
     def __len__(self):
         return len(self.vids)
 
-
+def custom_collate_fn(batch):
+    max_clips = max([b[0].size(0) for b in batch])  # 배치 내 최대 clip 수
+    
+    # Pad tensors to max length
+    img_clips = []
+    text_ids = []
+    attention_masks = []
+    labels = []
+    target_idx = []
+    
+    for img_c, txt_id, att_mask, lab, tgt_idx in batch:
+        num_clips = img_c.size(0)
+        # Padding for images
+        if num_clips < max_clips:
+            padding = torch.zeros((max_clips - num_clips, *img_c.size()[1:]), dtype=img_c.dtype)
+            img_c = torch.cat([img_c, padding], dim=0)
+        img_clips.append(img_c)
+        
+        # Padding for text
+        if num_clips < max_clips:
+            padding = torch.zeros((max_clips - num_clips, *txt_id.size()[1:]), dtype=txt_id.dtype)
+            txt_id = torch.cat([txt_id, padding], dim=0)
+            padding = torch.zeros((max_clips - num_clips, *att_mask.size()[1:]), dtype=att_mask.dtype)
+            att_mask = torch.cat([att_mask, padding], dim=0)
+        text_ids.append(txt_id)
+        attention_masks.append(att_mask)
+        
+        labels.append(lab)
+        target_idx.append(tgt_idx)
+    
+    return (torch.stack(img_clips), 
+            torch.stack(text_ids),
+            torch.stack(attention_masks),
+            torch.stack(labels),
+            torch.stack(target_idx))
 
 
 if __name__ == "__main__":

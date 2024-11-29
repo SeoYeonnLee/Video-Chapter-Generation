@@ -67,6 +67,7 @@ class ChapterHead(nn.Module):
         else:
             raise RuntimeError(f"Unknown head_type {head_type}")
 
+
     def forward(self, lang_emb, vision_emb):
         """
         lang_emb: [batch, lang_emb_size]
@@ -77,15 +78,19 @@ class ChapterHead(nn.Module):
 
         lang_out = self.lang_proj_head(lang_emb).unsqueeze(1)        # batch, 1, hidden_size
         lang_out = F.relu(lang_out)
+        # print(f'lang_out shape: {lang_out.shape}')
 
         vision_emb = vision_emb.view(-1, self.vision_emb_size)
         vision_out = self.vision_proj_head(vision_emb).view(batch_size, self.segment_size, self.hidden_size)  # batch, segment, hidden_size
         vision_out = F.relu(vision_out)
+        # print(f'vision_out shape: {vision_out.shape}')
 
-        fusion_emb = torch.cat([vision_out, lang_out], dim=1)  
+        fusion_emb = torch.cat([vision_out, lang_out], dim=1)
+        # print(f'fusion_emb shape: {fusion_emb.shape}') 
         if self.head_type == "mlp":
             fusion_emb = fusion_emb.view(batch_size, -1)
         out = self.head(fusion_emb)
+        # print(f'out shape: {out.shape}')
 
         return out
 
