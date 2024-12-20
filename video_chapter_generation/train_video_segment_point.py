@@ -289,7 +289,7 @@ if __name__ == "__main__":
     vision_pretrain_ckpt_path = f"/home/work/VCG/Video-Chapter-Generation/video_chapter_generation/checkpoint/r50tsm/batch_{batch_size}_lr_decay_cosine_train_test_split/pretrain.pth"
     lang_pretrain_ckpt_path = f"/home/work/VCG/Video-Chapter-Generation/video_chapter_generation/checkpoint/hugface_bert_pretrain/batch_{batch_size}_lr_decay_cosine_train_test_split/pretrain.pth"
     # ckpt_path = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/{args.data_mode}/{args.model_type}_validation/batch_{batch_size}_head_type_{args.head_type}_clip_frame_num_{args.clip_frame_num}/checkpoint.pth"
-    ckpt_path = f"/home/work/VCG/Video-Chapter-Generation/video_chapter_generation/checkpoint/test/head_{args.head_type}_batch_{batch_size}/checkpoint.pth"
+    ckpt_path = f"/home/work/VCG/Video-Chapter-Generation/video_chapter_generation/checkpoint/test/head_{args.head_type}_batch_{batch_size}_v2/checkpoint.pth"
     img_dir = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/youtube_video_frame_dataset"
     data_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/all_in_one_with_subtitle_final.csv"
     test_clips_json = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/debugging_val_clips_clip_frame_num_{clip_frame_num}.json"

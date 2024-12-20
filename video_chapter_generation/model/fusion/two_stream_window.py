@@ -107,11 +107,13 @@ class TwoStream(nn.Module):
 
         for i in range(num_clips):
             # Language processing
+            # with torch.cuda.amp.autocast():
             clip_text_ids = text_ids[:, i, :].reshape(batch_size, -1)   # [batch_size, seq_length] 
             clip_attn_mask = attention_mask[:, i, :]
             lang_output = self.lang_model(input_ids=clip_text_ids, attention_mask=clip_attn_mask)
             lang_emb = lang_output["pooler_output"]  # [batch_size, hidden_size]
             # print(f'clip lang embedding: {lang_emb.shape}')
+            del lang_output
 
             # Vision processing
             with torch.cuda.amp.autocast():  # 메모리 효율을 위한 mixed precision
@@ -120,21 +122,25 @@ class TwoStream(nn.Module):
                 frame_emb = self.vision_model(frames)
                 frame_emb = frame_emb.view(batch_size, self.segment_size, -1).float()
                 # print(f'clip vision embedding: {frame_emb.shape}')
+                del clip_frames, frames
 
             # Cross attention for current clip
             clip_fusion = self.fusion_head.process_clip(lang_emb, frame_emb) # [batch, hidden_size]
             # print(f'clip fusion embedding: {clip_fusion.shape}')
-            # clip_fusion_embs.append(clip_fusion)
-            clip_fusion_embs.append(clip_fusion.detach().cpu())
+            del lang_emb, frame_emb
+            clip_fusion_embs.append(clip_fusion.detach())
+            # clip_fusion_embs.append(clip_fusion.detach().cpu())
 
-        # all_fusion_embs = torch.stack(clip_fusion_embs, dim=1)
-        all_fusion_embs = torch.stack([emb.cuda() for emb in clip_fusion_embs], dim=1) # [batch, num_clips, hidden_size]
+            del clip_fusion
+
+        all_fusion_embs = torch.stack(clip_fusion_embs, dim=1)
+        # all_fusion_embs = torch.stack([emb.cuda() for emb in clip_fusion_embs], dim=1) # [batch, num_clips, hidden_size]
+        del clip_fusion_embs
         # print(f'all_fusion_embs: {all_fusion_embs.shape}')
         
         binary_logits, binary_prob = self.window_head(all_fusion_embs)
 
-        del lang_output, lang_emb, clip_frames, frames, frame_emb, clip_fusion, clip_fusion_embs
-        gc.collect()
+        del all_fusion_embs
         torch.cuda.empty_cache()
 
         # binary_logits, binary_prob = classifier(fusion_emb)

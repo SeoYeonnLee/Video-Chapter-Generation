@@ -6,9 +6,10 @@ flat testing videos to clips, so that we can quickly test model performance with
 import json
 import os, glob
 from dataset_process_scripts.load_dataset_utils import parse_csv_to_list, extract_first_timestamp
+from tqdm import tqdm
 
 
-def flat_videos2clips(img_dir, data_file, test_vid_file, clip_frame_num=16):
+def flat_videos2clips(img_dir, data_file, test_vid_file, clip_frame_num=12):
     half_clip_frame_num = int(clip_frame_num // 2)
 
     # processed vids
@@ -27,12 +28,9 @@ def flat_videos2clips(img_dir, data_file, test_vid_file, clip_frame_num=16):
         vid = filename.split(".")[0][9:]
         asr_files[vid] = asr_file
 
-    no_keys = [(i, item) for i, item in enumerate(vids) if item not in asr_files]
-    print(no_keys)
     all_clip_infos = []
     
-    for idx, vid in enumerate(vids):
-        print(f"processing vid {vid}, {idx}/{len(vids)}...")
+    for idx, vid in enumerate(tqdm(vids, desc="Processing videos")):
 
         i = all_vids.index(vid)
         title = titles[i]
@@ -63,7 +61,7 @@ def flat_videos2clips(img_dir, data_file, test_vid_file, clip_frame_num=16):
 
         # go through all clips within this video
         max_offset = 2
-        clips = [[start_t, start_t + clip_frame_num] for start_t in range(0, image_num - clip_frame_num, 8 * max_offset)]
+        clips = [[start_t, start_t + clip_frame_num] for start_t in range(0, image_num - clip_frame_num, 2 * max_offset)]
         batch_num = len(clips)
         for batch_i in range(batch_num):
             # this clip's start and end time
@@ -131,7 +129,7 @@ def flat_videos2clips(img_dir, data_file, test_vid_file, clip_frame_num=16):
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description='video chapter model')
-    parser.add_argument('--clip_frame_num', default=16, type=int)
+    parser.add_argument('--clip_frame_num', default=12, type=int)
     args = parser.parse_args()
 
     img_dir = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/youtube_video_frame_dataset"
@@ -139,7 +137,7 @@ if __name__ == "__main__":
     # test_vid_file = "/opt/tiger/video_chapter_youtube_dataset/dataset/test.txt"
     # test_vid_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/final_test.txt"
     # train_vid_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/final_train.txt"
-    test_vid_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/debugging_val.txt"
+    test_vid_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/final_validation.txt"
 
 
     clip_frame_num = args.clip_frame_num
@@ -147,7 +145,7 @@ if __name__ == "__main__":
 
     # save all test clips
     # save_json_file = f"/opt/tiger/video_chapter_youtube_dataset/dataset/test_clips_clip_frame_num_{clip_frame_num}.json"
-    save_json_file = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/debugging_val_clips_clip_frame_num_{clip_frame_num}.json"
+    save_json_file = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/validation_clips_clip_frame_num_{clip_frame_num}.json"
     # save_json_file = f"/opt/tiger/video_chapter_youtube_dataset/dataset/all_clips_clip_frame_num_{clip_frame_num}.json"
     with open(save_json_file, "w") as f:
         json.dump(all_clip_infos, f)
@@ -197,4 +195,3 @@ if __name__ == "__main__":
     #     json.dump(ambiguous_clip_infos, f)
     # with open(save_wrong_data_json_file, "w") as f:
     #     json.dump(wrong_data_clip_infos, f)
-

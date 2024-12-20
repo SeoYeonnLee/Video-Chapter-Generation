@@ -6,6 +6,7 @@ import math
 import os
 import time
 import logging
+import gc
 
 from tqdm import tqdm
 import numpy as np
@@ -67,13 +68,26 @@ class Trainer:
 
     def save_checkpoint(self, epoch, best_result):
         raw_model = self.model.module if hasattr(self.model, "module") else self.model
-        os.makedirs(os.path.dirname(self.config.ckpt_path), exist_ok=True)
-        print("saving %s" % self.config.ckpt_path)
-        torch.save({
+        checkpoint_dir = os.path.dirname(self.config.ckpt_path)
+        os.makedirs(checkpoint_dir, exist_ok=True)
+        
+        # Create new checkpoint filename with epoch number
+        base_path = os.path.splitext(self.config.ckpt_path)[0]  # Remove .pth extension
+        new_checkpoint_path = f"{base_path}_{epoch}.pth"
+        
+        print(f"Saving new best checkpoint at epoch {epoch} to {new_checkpoint_path}")
+        
+        checkpoint = {
             "epoch": epoch,
             "best_result": best_result,
             "model_state_dict": raw_model.state_dict()
-        }, self.config.ckpt_path)
+        }
+        
+        # Save new checkpoint with epoch number
+        torch.save(checkpoint, new_checkpoint_path)
+        
+        # Also save as latest best checkpoint (for backwards compatibility)
+        torch.save(checkpoint, self.config.ckpt_path)
 
     def train(self):
         raw_model = self.model.module if hasattr(self.model, "module") else self.model
@@ -86,7 +100,11 @@ class Trainer:
             self.run_epoch('train', epoch, self.train_dataset)
 
             if self.test_dataset is not None and epoch % 30 == 0:
-                test_result = self.run_epoch("test", epoch, self.test_dataset)
+                test_result = self.run_epoch("infer_test", epoch, self.test_dataset)
+
+            if epoch % 5 == 0:
+                gc.collect()
+                torch.cuda.empty_cache()
 
             good_model = self.test_dataset is None or test_result > best_result
             if self.config.ckpt_path is not None and good_model:
@@ -94,6 +112,7 @@ class Trainer:
                 self.save_checkpoint(epoch, best_result)
 
     def run_epoch(self, split, epoch, dataset):
+
         is_train = split == 'train'
         self.model.train(is_train)
         shuffle = True if is_train else False
@@ -111,7 +130,10 @@ class Trainer:
         pbar = tqdm(enumerate(loader), total=len(loader))
 
         for it, (img_clips, text_ids, attention_masks, labels, target_idx) in pbar:
-            torch.cuda.empty_cache()
+            # if it % 60 == 0:
+            #     gc.collect()
+            #     torch.cuda.empty_cache()
+
             img_clips = img_clips.float().to(self.device)
             text_ids = text_ids.to(self.device)
             attention_masks = attention_masks.to(self.device)   
@@ -257,19 +279,19 @@ if __name__ == "__main__":
     batch_size = args.batch_size
     clip_frame_num = args.clip_frame_num
     window_size = args.window_size
-    num_workers = 8
+    num_workers = 4
     max_text_len = 100
 
     # Paths
-    vision_pretrain_ckpt_path = f"/home/work/VCG/Video-Chapter-Generation/video_chapter_generation/checkpoint/r50tsm/batch_{batch_size}_lr_decay_cosine_train_test_split/pretrain.pth"
-    lang_pretrain_ckpt_path = f"/home/work/VCG/Video-Chapter-Generation/video_chapter_generation/checkpoint/hugface_bert_pretrain/batch_{batch_size}_lr_decay_cosine_train_test_split/pretrain.pth"
-    ckpt_path = f"/home/work/VCG/Video-Chapter-Generation/video_chapter_generation/checkpoint/test/global_batch_{batch_size}/checkpoint.pth"
+    vision_pretrain_ckpt_path = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/r50tsm/batch_{batch_size}_lr_decay_cosine_train_test_split/pretrain.pth"
+    lang_pretrain_ckpt_path = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/hugface_bert_pretrain/batch_{batch_size}_lr_decay_cosine_train_test_split/pretrain.pth"
+    ckpt_path = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/chapter_localization/window_attn_batch_{batch_size}_frame_{clip_frame_num}/checkpoint.pth"
     img_dir = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/youtube_video_frame_dataset"
     data_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/all_in_one_with_subtitle_final.csv"
-    test_clips_json = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/debugging_val_clips_clip_frame_num_{clip_frame_num}.json"
+    test_clips_json = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/validation_clips_clip_frame_num_{clip_frame_num}.json"
 
-    train_vid_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/debugging_train.txt"
-    test_vid_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/debugging_validation.txt"
+    train_vid_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/final_train.txt"
+    test_vid_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/final_validation.txt"
     tensorboard_log = os.path.dirname(ckpt_path)
     tensorboard_writer = SummaryWriter(tensorboard_log)
 
@@ -285,7 +307,7 @@ if __name__ == "__main__":
         shift_div=8,
         pretrain_stage=False
     )
-    if os.path.exists(vision_pretrain_ckpt_path):
+    if os.path.exists(vision_pretrain_ckpt_path):   
         vision_model.load_state_dict(torch.load(vision_pretrain_ckpt_path))
 
     # GlobalTwoStream model
