@@ -1,3 +1,7 @@
+'''
+clip embedding concat + window attention
+'''
+
 import gc
 import math
 import torch

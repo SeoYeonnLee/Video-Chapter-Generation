@@ -11,7 +11,7 @@ from torch.nn import functional as F
 from einops import rearrange
 
 from memory_cache_utils import MemoryManager
-from model.fusion.window_self_attention import VideoChapterClassifier
+from model.fusion.window_self_attention_layer6 import VideoChapterClassifier
 
 logger = logging.getLogger(__name__)
 
@@ -32,14 +32,26 @@ class CrossAttention(nn.Module):
         self.query_proj = nn.Linear(hidden_size, hidden_size)
         self.key_proj = nn.Linear(hidden_size, hidden_size)
         self.value_proj = nn.Linear(hidden_size, hidden_size)
-        self.out_proj = nn.Linear(hidden_size, hidden_size)
-        # self.out_proj = nn.Sequential(
-        #     nn.Linear(hidden_size, hidden_size * 2),
-        #     nn.LayerNorm(hidden_size * 2),
-        #     nn.GELU(),
-        #     nn.Dropout(dropout),
-        #     nn.Linear(hidden_size * 2, hidden_size)
-        #     )
+        # self.out_proj = nn.Linear(hidden_size, hidden_size)
+        # layer 6 - hidden * 2까지
+        self.out_proj = nn.Sequential(
+            nn.Linear(hidden_size, hidden_size * 2),
+            nn.LayerNorm(hidden_size * 2),
+            nn.GELU(),
+            nn.Dropout(dropout),
+
+            nn.Linear(hidden_size * 2, hidden_size * 4),
+            nn.LayerNorm(hidden_size * 4),
+            nn.GELU(),
+            nn.Dropout(dropout),
+
+            nn.Linear(hidden_size * 4, hidden_size * 2),
+            nn.LayerNorm(hidden_size * 2),
+            nn.GELU(),
+            nn.Dropout(dropout),
+
+            nn.Linear(hidden_size * 2, hidden_size)
+            )
 
         # Dropout
         self.attention_dropout = nn.Dropout(dropout)
@@ -76,31 +88,51 @@ class CrossAttention(nn.Module):
         self.fusion_alpha = nn.Parameter(torch.tensor(0.5))
 
         # FFN
-        self.ffn = nn.Sequential(
-            nn.Linear(hidden_size, hidden_size * 4),
-            nn.LayerNorm(hidden_size * 4),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_size * 4, hidden_size)
-        )
         # self.ffn = nn.Sequential(
-        #     nn.Linear(hidden_size, hidden_size * 2),
-        #     nn.LayerNorm(hidden_size * 2),
-        #     nn.GELU(),
-        #     nn.Dropout(dropout),
-
-        #     nn.Linear(hidden_size * 2, hidden_size * 4),
+        #     nn.Linear(hidden_size, hidden_size * 4),
         #     nn.LayerNorm(hidden_size * 4),
         #     nn.GELU(),
         #     nn.Dropout(dropout),
-            
-        #     nn.Linear(hidden_size * 4, hidden_size * 2),
-        #     nn.LayerNorm(hidden_size * 2),
-        #     nn.GELU(),
-        #     nn.Dropout(dropout),
-
-        #     nn.Linear(hidden_size * 2, hidden_size)
+        #     nn.Linear(hidden_size * 4, hidden_size)
         # )
+        self.ffn = nn.Sequential(
+            nn.Linear(hidden_size, hidden_size * 2),
+            nn.LayerNorm(hidden_size * 2),
+            nn.GELU(),
+            nn.Dropout(dropout),
+
+            nn.Linear(hidden_size * 2, hidden_size * 4),
+            nn.LayerNorm(hidden_size * 4),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            
+            nn.Linear(hidden_size * 4, hidden_size * 4),
+            nn.LayerNorm(hidden_size * 4),
+            nn.GELU(),
+            nn.Dropout(dropout),
+
+            nn.Linear(hidden_size * 4, hidden_size * 4),
+            nn.LayerNorm(hidden_size * 4),
+            nn.GELU(),
+            nn.Dropout(dropout),
+
+            nn.Linear(hidden_size * 4, hidden_size * 4),
+            nn.LayerNorm(hidden_size * 4),
+            nn.GELU(),
+            nn.Dropout(dropout),
+
+            nn.Linear(hidden_size * 4, hidden_size * 4),
+            nn.LayerNorm(hidden_size * 4),
+            nn.GELU(),
+            nn.Dropout(dropout),
+
+            nn.Linear(hidden_size * 4, hidden_size * 2),
+            nn.LayerNorm(hidden_size * 2),
+            nn.GELU(),
+            nn.Dropout(dropout),
+
+            nn.Linear(hidden_size * 2, hidden_size)
+        )
 
 
         self._init_weights()
@@ -109,18 +141,18 @@ class CrossAttention(nn.Module):
         # Initialize weights
         scale = 1.0 / math.sqrt(self.head_dim)
         # attention projection layers, bias
-        for module in [self.query_proj, self.key_proj, self.value_proj, self.out_proj]:
-            nn.init.xavier_uniform_(module.weight, gain=scale)
-            nn.init.zeros_(module.bias)
-
-        # for module in [self.query_proj, self.key_proj, self.value_proj]:
+        # for module in [self.query_proj, self.key_proj, self.value_proj, self.out_proj]:
         #     nn.init.xavier_uniform_(module.weight, gain=scale)
         #     nn.init.zeros_(module.bias)
 
-        # for layer in self.out_proj:
-        #     if isinstance(layer, nn.Linear):  # Check if the layer is an nn.Linear layer
-        #         nn.init.xavier_uniform_(layer.weight, gain=scale)
-        #         nn.init.zeros_(layer.bias)
+        for module in [self.query_proj, self.key_proj, self.value_proj]:
+            nn.init.xavier_uniform_(module.weight, gain=scale)
+            nn.init.zeros_(module.bias)
+
+        for layer in self.out_proj:
+            if isinstance(layer, nn.Linear):  # Check if the layer is an nn.Linear layer
+                nn.init.xavier_uniform_(layer.weight, gain=scale)
+                nn.init.zeros_(layer.bias)
 
         # Position encoding layers
         # for module in [self.frame_pos_encoding, self.global_pos_encoding]:
@@ -494,73 +526,28 @@ class TwoStream(nn.Module):
                 self.memory_manager.handle_oom()
             raise e
 
-    # def configure_optimizers(self, train_config):
-    #     pretrained_params = []
-    #     attn_params = []
-
-    #     for name, param in self.named_parameters():
-    #         if 'lang_model.base_model' in name or 'vision_model.base_model' in name:
-    #             pretrained_params.append(param)
-    #         else:
-    #             attn_params.append(param)
-
-    #     optim_groups = [
-    #         {
-    #             "params":pretrained_params,
-    #             'lr':train_config.learning_rate*0.1,
-    #             'weight_decay':train_config.weight_decay*0.1
-    #         },
-    #         {
-    #             "params":attn_params,
-    #             'lr':train_config.learning_rate,
-    #             'weight_decay':train_config.weight_decay
-    #         }
-    #     ]
-
-    #     optimizer = torch.optim.AdamW(optim_groups, betas=train_config.betas, weight_decay=0.0)
-    #     return optimizer
-    
-    # MVCG
     def configure_optimizers(self, train_config):
-        """
-        This long function is unfortunately doing something very simple and is being very defensive:
-        We are separating out all parameters of the model into two buckets: those that will experience
-        weight decay for regularization and those that won't (biases, and layernorm/embedding weights).
-        We are then returning the PyTorch optimizer object.
-        """
+        pretrained_params = []
+        attn_params = []
 
-        # separate out all parameters to those that will and won't experience regularizing weight decay
-        decay = set()
-        no_decay = set()
-        for mn, m in self.named_modules():
-            for pn, p in m.named_parameters():
-                fpn = '%s.%s' % (mn, pn) if mn else pn # full param name
+        for name, param in self.named_parameters():
+            if 'lang_model.base_model' in name or 'vision_model.base_model' in name:
+                pretrained_params.append(param)
+            else:
+                attn_params.append(param)
 
-                if pn.endswith('bias'):
-                    # all biases will not be decayed
-                    no_decay.add(fpn)
-                elif "LayerNorm" in fpn:
-                    no_decay.add(fpn)
-                elif "bn" in fpn:
-                    no_decay.add(fpn)
-                elif "emb" in fpn:
-                    no_decay.add(fpn)
-                else:
-                    # weights of whitelist modules will be weight decayed
-                    decay.add(fpn)
-
-        # validate that we considered every parameter
-        param_dict = {pn: p for pn, p in self.named_parameters()}
-        inter_params = decay & no_decay
-        union_params = decay | no_decay
-        assert len(inter_params) == 0, "parameters %s made it into both decay/no_decay sets!" % (str(inter_params), )
-        assert len(param_dict.keys() - union_params) == 0, "parameters %s were not separated into either decay/no_decay set!" \
-                                                    % (str(param_dict.keys() - union_params), )
-
-        # create the pytorch optimizer object
         optim_groups = [
-            {"params": [param_dict[pn] for pn in sorted(list(decay))], "weight_decay": train_config.weight_decay},
-            {"params": [param_dict[pn] for pn in sorted(list(no_decay))], "weight_decay": 0.0},
+            {
+                "params":pretrained_params,
+                'lr':train_config.learning_rate*0.1,
+                'weight_decay':train_config.weight_decay*0.1
+            },
+            {
+                "params":attn_params,
+                'lr':train_config.learning_rate,
+                'weight_decay':train_config.weight_decay
+            }
         ]
-        optimizer = torch.optim.AdamW(optim_groups, lr=train_config.learning_rate, betas=train_config.betas)
+
+        optimizer = torch.optim.AdamW(optim_groups, betas=train_config.betas, weight_decay=0.0)
         return optimizer

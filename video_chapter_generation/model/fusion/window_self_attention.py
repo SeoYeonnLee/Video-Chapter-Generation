@@ -1,3 +1,7 @@
+'''
+window self attention base
+'''
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -27,19 +31,28 @@ class VideoChapterWindowAttention(nn.Module):
         
         # Output projection
         self.out_proj = nn.Linear(hidden_size, hidden_size)
+        # self.out_proj = nn.Sequential(
+        #     nn.Linear(hidden_size, hidden_size * 2),
+        #     nn.LayerNorm(hidden_size * 2),
+        #     nn.GELU(),
+        #     nn.Dropout(dropout),
+
+        #     nn.Linear(hidden_size * 2, hidden_size)
+        # )
         
         # Dropouts
-        self.attention_dropout = nn.Dropout(dropout)
-        self.output_dropout = nn.Dropout(dropout)
+        self.input_dropout = nn.Dropout(0.1)
+        self.attention_dropout = nn.Dropout(0.2)
+        # self.output_dropout = nn.Dropout(0.15)
 
         # Position and progress embedding
         self.position_encoding = nn.Sequential(
-            nn.Linear(2, hidden_size//2),  # [normalized_pos, progress]
+            nn.Linear(1, hidden_size//2),  # [normalized_pos, progress]
             nn.LayerNorm(hidden_size//2),
             nn.Tanh(),
             nn.Linear(hidden_size//2, hidden_size),
             nn.LayerNorm(hidden_size),
-            nn.Dropout(dropout)
+            nn.Dropout(0.1)
         )
 
         # Learnable window position bias
@@ -51,19 +64,36 @@ class VideoChapterWindowAttention(nn.Module):
     def _init_weights(self):
         scale = 1.0 / math.sqrt(self.attention_head_size)
 
-        # Initialize attention weights
-        for module in [self.query, self.key, self.value, self.out_proj]:
-            nn.init.xavier_uniform_(module.weight, gain=scale)
+        # Q, K, V 초기화
+        for module in [self.query, self.key, self.value]:
+            nn.init.normal_(module.weight, mean=0.0, std=scale)
+            # Query는 약간 작게 초기화하여 초기 attention을 더 uniform하게
+            if module == self.query:
+                module.weight.data *= 0.9
             nn.init.zeros_(module.bias)
-
-        # Initialize window position bias
-        nn.init.normal_(self.window_pos_bias, mean=0.0, std=0.02)
-
-        # Initialize position encoding weights
+        
+        # Output projection - 작은 초기값
+        nn.init.normal_(self.out_proj.weight, mean=0.0, std=scale * 0.5)
+        nn.init.zeros_(self.out_proj.bias)
+        # for layer in self.out_proj:
+        #     if isinstance(layer, nn.Linear):  # Check if the layer is an nn.Linear layer
+        #         nn.init.normal_(layer.weight, mean=0.0, std=scale * 0.5)
+        #         nn.init.zeros_(layer.bias)
+        
+        # Position encoding 초기화
         for layer in self.position_encoding:
             if isinstance(layer, nn.Linear):
-                nn.init.kaiming_normal_(layer.weight)
-                nn.init.zeros_(layer.bias)
+                # Sine-cosine 초기화와 유사한 범위로
+                bound = 1 / math.sqrt(layer.weight.shape[1])
+                nn.init.uniform_(layer.weight, -bound, bound)
+                if layer.bias is not None:
+                    nn.init.uniform_(layer.bias, -bound, bound)
+            elif isinstance(layer, nn.LayerNorm):
+                nn.init.constant_(layer.weight, 1.0)
+                nn.init.constant_(layer.bias, 0.0)
+
+        # Window position bias - Transformer 스타일
+        nn.init.normal_(self.window_pos_bias, mean=0.0, std=0.02)
 
     def get_clip_positions(self, clip_indices, total_clips):
         """
@@ -79,12 +109,14 @@ class VideoChapterWindowAttention(nn.Module):
         local_positions = local_positions.float() / (middle_idx + 1e-6)
 
         # 2. 전체 비디오에서의 절대적 위치
-        clip_indices = torch.clamp(clip_indices.float(), 0, total_clips-1)
-        global_positions = torch.log(clip_indices + 1) / torch.log(total_clips + 1)
+        # clip_indices = torch.clamp(clip_indices.float(), 0, total_clips-1)
+        # global_positions = torch.log(clip_indices + 1) / torch.log(total_clips + 1)
 
         # 두 위치 정보 결합
-        position_info = torch.stack([local_positions, global_positions], dim=-1)
-        return position_info
+        # position_info = torch.stack([local_positions, global_positions], dim=-1)
+        # return position_info
+        return local_positions.unsqueeze(-1)
+        
 
     def transpose_for_scores(self, x):
         new_x_shape = x.size()[:-1] + (self.num_attention_heads, self.attention_head_size)
@@ -115,7 +147,7 @@ class VideoChapterWindowAttention(nn.Module):
                 
                 start = target_idx - middle_idx
                 window_indices = torch.arange(start, start + seq_length, device=device)
-                window_indices = torch.clamp(window_indices, 0, total_clips - 1)
+                # window_indices = torch.clamp(window_indices, 0, total_clips - 1)
                 
                 pos_info = self.get_clip_positions(window_indices, total_clips)
                 position_info.append(pos_info)
@@ -152,7 +184,7 @@ class VideoChapterWindowAttention(nn.Module):
 
             # Output projection with dropout
             attention_output = self.out_proj(context_layer) # [batch, 1, hidden]
-            attention_output = self.output_dropout(attention_output)
+            # attention_output = self.output_dropout(attention_output)
 
             # 추론 시에만 중간 결과 정리
             if not self.training:
@@ -179,8 +211,10 @@ class VideoChapterBlock(nn.Module):
         super().__init__()
         self.memory_manager = MemoryManager()
         
-        self.attention_layernorm = nn.LayerNorm(hidden_size)
-        self.ffn_layernorm = nn.LayerNorm(hidden_size)
+        self.pre_attention_norm = nn.LayerNorm(hidden_size)
+        self.post_attention_norm = nn.LayerNorm(hidden_size)
+        self.pre_ffn_norm = nn.LayerNorm(hidden_size)
+        self.post_ffn_norm = nn.LayerNorm(hidden_size)
 
         self.attention = VideoChapterWindowAttention(
             hidden_size=hidden_size,
@@ -191,20 +225,95 @@ class VideoChapterBlock(nn.Module):
         
         # Feed Forward Network
         self.ffn = nn.Sequential(
+            nn.Dropout(0.1),
             nn.Linear(hidden_size, hidden_size * 4),
             nn.GELU(),
-            nn.Dropout(0.2),
+            nn.Dropout(0.25),
             nn.Linear(hidden_size * 4, hidden_size),
-            nn.Dropout(0.2)
+            nn.Dropout(0.15)
         )
 
         self._init_weights()
 
     def _init_weights(self):
-        for layer in self.ffn:
-            if isinstance(layer, nn.Linear):
-                nn.init.kaiming_normal_(layer.weight)
-                nn.init.zeros_(layer.bias)
+        print("Starting block initialization")
+        try:
+            # FFN layers 초기화
+            for i, module in enumerate(self.ffn):
+                print(f"FFN layer {i}: {type(module)}")
+                if isinstance(module, nn.Linear):
+                    print(f"Linear shape: in={module.in_features}, out={module.out_features}")
+                    if module.in_features == module.out_features:
+                        nn.init.kaiming_normal_(module.weight, mode='fan_in')
+                        module.weight.data *= 0.1
+                    else:
+                        nn.init.kaiming_normal_(module.weight, mode='fan_out')
+                    nn.init.zeros_(module.bias)
+
+            # Layer norms
+            for name, module in self.named_modules():
+                if isinstance(module, nn.LayerNorm):
+                    print(f"Initializing LayerNorm: {name}")
+                    nn.init.constant_(module.weight, 1.0)
+                    nn.init.constant_(module.bias, 0.0)
+                    
+            print("Finished block initialization")
+        except Exception as e:
+            print(f"Error in block init: {str(e)}")
+            raise
+    
+    '''def _init_weights(self):
+        # FFN layers 초기화 - Linear 레이어만 초기화
+        for module in self.ffn:
+            if isinstance(module, nn.Linear):
+                if module.in_features == module.out_features:
+                    # 크기가 같은 경우 (hidden_size -> hidden_size)
+                    nn.init.kaiming_normal_(
+                        module.weight,
+                        mode='fan_in',
+                        nonlinearity='linear'
+                    )
+                    module.weight.data *= 0.1
+                else:
+                    # 확장/축소하는 레이어
+                    nn.init.kaiming_normal_(
+                        module.weight,
+                        mode='fan_out',
+                        nonlinearity='relu'
+                    )
+                nn.init.zeros_(module.bias)
+        
+        # Layer norms 초기화
+        for name, module in self.named_modules():
+            if isinstance(module, nn.LayerNorm):
+                nn.init.constant_(module.weight, 1.0)
+                nn.init.constant_(module.bias, 0.0)'''
+    '''def _init_weights(self):
+        # First FFN layer - 확장하는 layer
+        first_ffn = self.ffn[0]  # hidden_size -> hidden_size * 4
+        nn.init.kaiming_normal_(
+            first_ffn.weight,
+            mode='fan_out',
+            nonlinearity='relu'  # GELU용으로도 적합
+        )
+        nn.init.constant_(first_ffn.bias, 0.01)
+        
+        # Second FFN layer - 축소하는 layer
+        second_ffn = self.ffn[3]  # hidden_size * 4 -> hidden_size
+        # 작은 초기값으로 residual connection 효과 유지
+        nn.init.kaiming_normal_(
+            second_ffn.weight,
+            mode='fan_in',
+            nonlinearity='linear'
+        )
+        second_ffn.weight.data *= 0.1
+        nn.init.zeros_(second_ffn.bias)
+        
+        # Layer norms
+        for name, module in self.named_modules():
+            if isinstance(module, nn.LayerNorm):
+                nn.init.constant_(module.weight, 1.0)
+                nn.init.constant_(module.bias, 0.0)'''
 
     def forward(self, hidden_states, clip_info): # [batch, num_clips, hidden_size]
         try:
@@ -213,13 +322,45 @@ class VideoChapterBlock(nn.Module):
             residual = hidden_states[:, middle_idx:middle_idx+1, :] # [batch, 1, hidden_size]
 
             # Feed Forward layer with residual connection
-            normed_states = self.attention_layernorm(hidden_states)
-            attention_output = self.attention(normed_states, clip_info) # [batch, 1, hidden_size]
+            normed_states = self.pre_attention_norm(hidden_states)
+            attention_output = self.attention(normed_states, clip_info)  # [batch, 1, hidden_size]
             attention_output = attention_output + residual
+            attention_output = self.post_attention_norm(attention_output)
 
-            normed_attention = self.ffn_layernorm(attention_output)
-            ffn_output = self.ffn(normed_attention)
-            output = ffn_output + attention_output # [batch, 1, hidden_size]
+            residual = attention_output
+            normed_states = self.pre_ffn_norm(attention_output)
+            ffn_output = self.ffn(normed_states)
+            output = ffn_output + residual
+            output = self.post_ffn_norm(output) # [batch, 1, hidden_size]
+            
+            if not self.training:
+                # 메모리 정리 - 실제 사용한 변수만 삭제
+                del normed_states, attention_output, ffn_output
+                torch.cuda.empty_cache()
+
+            return output
+            
+        except RuntimeError as e:
+            if "out of memory" in str(e):
+                self.memory_manager.cleanup(force=True)
+            raise e
+    '''def forward(self, hidden_states, clip_info): # [batch, num_clips, hidden_size]
+        try:
+            # Attention layer with residual connection
+            middle_idx = hidden_states.size(1) // 2
+            residual = hidden_states[:, middle_idx:middle_idx+1, :] # [batch, 1, hidden_size]
+
+            # Feed Forward layer with residual connection
+            normed_states = self.pre_attention_norm(hidden_states)
+            attention_output = self.attention(normed_states, clip_info)# [batch, 1, hidden_size]
+            attention_output = attention_output + residual
+            attention_output = self.post_attention_norm(attention_output)
+
+            residual = attention_output
+            normed_states = self.pre_ffn_norm(attention_output)
+            ffn_output = self.ffn(normed_states)
+            output = ffn_output + residual
+            output = self.post_ffn_norm(output) # [batch, 1, hidden_size]
             
             if not self.training:
                 del normed_states, attention_output, normed_attention, ffn_output
@@ -230,7 +371,7 @@ class VideoChapterBlock(nn.Module):
         except RuntimeError as e:
             if "out of memory" in str(e):
                 self.memory_manager.cleanup(force=True)
-            raise e
+            raise e'''
 
 
 class VideoChapterClassifier(nn.Module):
@@ -248,20 +389,85 @@ class VideoChapterClassifier(nn.Module):
         # Classification head
         self.classifier = nn.Sequential(
             nn.LayerNorm(config.hidden_size),
-            nn.Linear(config.hidden_size, config.hidden_size),
-            nn.ReLU(),
-            nn.Dropout(0.2),
+            nn.Dropout(0.1),
             nn.Linear(config.hidden_size, config.hidden_size//2),
-            nn.ReLU(),
-            nn.Dropout(0.2),
+            nn.SiLU(),
+            nn.LayerNorm(config.hidden_size//2),
+            nn.Dropout(0.3),
             nn.Linear(config.hidden_size//2, 2)
         )
+        # self.classifier = nn.Sequential(
+        #     nn.LayerNorm(config.hidden_size),
+        #     nn.Dropout(0.1),
+        #     nn.Linear(config.hidden_size, config.hidden_size//2),
+        #     nn.SiLU(),
+
+        #     nn.LayerNorm(config.hidden_size//2),
+        #     nn.Dropout(0.2),
+        #     nn.Linear(config.hidden_size//2, config.hidden_size//4),
+        #     nn.SiLU(),
+
+        #     nn.LayerNorm(config.hidden_size//4),
+        #     nn.Dropout(0.3),
+        #     nn.Linear(config.hidden_size//4, config.hidden_size//8),
+        #     nn.SiLU(),
+
+        #     nn.Linear(config.hidden_size//8, 2)
+        # )
+
+        self._init_weights()
 
     def _init_weights(self):
-        for layer in self.classifier:
-            if isinstance(layer, nn.Linear):
-                nn.init.kaiming_normal_(layer.weight)
-                nn.init.zeros_(layer.bias)
+        print("Starting classifier initialization")
+        try:
+            # Classifier layers 초기화
+            for i, layer in enumerate(self.classifier):
+                print(f"Initializing layer {i}: {type(layer)}")
+                if isinstance(layer, nn.Linear):
+                    print(f"Linear layer shape: in={layer.in_features}, out={layer.out_features}")
+                    if layer.out_features == 2:  # 출력 레이어
+                        nn.init.xavier_uniform_(layer.weight, gain=1.0)
+                        nn.init.zeros_(layer.bias)
+                    else:  # 중간 레이어
+                        nn.init.kaiming_normal_(
+                            layer.weight,
+                            mode='fan_out',
+                            nonlinearity='relu'
+                        )
+                        nn.init.constant_(layer.bias, 0.01)
+                elif isinstance(layer, nn.LayerNorm):
+                    print(f"LayerNorm layer normalized_shape={layer.normalized_shape}")
+                    nn.init.constant_(layer.weight, 1.0)
+                    nn.init.constant_(layer.bias, 0.0)
+            print("Finished classifier initialization")
+        except Exception as e:
+            print(f"Error during initialization: {str(e)}")
+            raise
+    '''def _init_weights(self):
+        # First classifier layer
+        first_layer = self.classifier[1]  # hidden_size -> hidden_size//2
+        nn.init.kaiming_normal_(
+            first_layer.weight,
+            mode='fan_out',
+            nonlinearity='relu'
+        )
+        nn.init.constant_(first_layer.bias, 0.01)
+        
+        # Output layer - 이진 분류
+        output_layer = self.classifier[-1]  # hidden_size//2 -> 2
+        # Xavier initialization for logits
+        nn.init.xavier_uniform_(
+            output_layer.weight,
+            gain=1.0  # 로짓이므로 activation 없음
+        )
+        # Initialize for balanced classes
+        nn.init.zeros_(output_layer.bias)
+        
+        # Layer norms
+        for m in self.classifier:
+            if isinstance(m, nn.LayerNorm):
+                nn.init.constant_(m.weight, 1.0)
+                nn.init.constant_(m.bias, 0.0)'''
 
     def forward(self, fusion_emb, clip_info):
         device = fusion_emb.device

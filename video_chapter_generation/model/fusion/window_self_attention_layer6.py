@@ -26,12 +26,31 @@ class VideoChapterWindowAttention(nn.Module):
         self.value = nn.Linear(hidden_size, self.all_head_size)
         
         # Output projection
-        self.out_proj = nn.Linear(hidden_size, hidden_size)
+        # self.out_proj = nn.Linear(hidden_size, hidden_size)
+        # layer6 - hidden * 2까지
+        self.out_proj = nn.Sequential(
+            nn.Linear(hidden_size, hidden_size * 2),
+            nn.LayerNorm(hidden_size * 2),
+            nn.GELU(),
+            nn.Dropout(dropout),
+
+            nn.Linear(hidden_size * 2, hidden_size * 4),
+            nn.LayerNorm(hidden_size * 4),
+            nn.GELU(),
+            nn.Dropout(dropout),
+
+            nn.Linear(hidden_size * 4, hidden_size * 2),
+            nn.LayerNorm(hidden_size * 2),
+            nn.GELU(),
+            nn.Dropout(dropout),
+
+            nn.Linear(hidden_size * 2, hidden_size)
+        )
         
         # Dropouts
         self.input_dropout = nn.Dropout(0.1)
         self.attention_dropout = nn.Dropout(0.2)
-        self.output_dropout = nn.Dropout(0.15)
+        # self.output_dropout = nn.Dropout(0.15)
 
         # Position and progress embedding
         self.position_encoding = nn.Sequential(
@@ -61,8 +80,12 @@ class VideoChapterWindowAttention(nn.Module):
             nn.init.zeros_(module.bias)
         
         # Output projection - 작은 초기값
-        nn.init.normal_(self.out_proj.weight, mean=0.0, std=scale * 0.5)
-        nn.init.zeros_(self.out_proj.bias)
+        # nn.init.normal_(self.out_proj.weight, mean=0.0, std=scale * 0.5)
+        # nn.init.zeros_(self.out_proj.bias)
+        for layer in self.out_proj:
+            if isinstance(layer, nn.Linear):  # Check if the layer is an nn.Linear layer
+                nn.init.normal_(layer.weight, mean=0.0, std=scale * 0.5)
+                nn.init.zeros_(layer.bias)
         
         # Position encoding 초기화
         for layer in self.position_encoding:
@@ -168,7 +191,7 @@ class VideoChapterWindowAttention(nn.Module):
 
             # Output projection with dropout
             attention_output = self.out_proj(context_layer) # [batch, 1, hidden]
-            attention_output = self.output_dropout(attention_output)
+            # attention_output = self.output_dropout(attention_output)
 
             # 추론 시에만 중간 결과 정리
             if not self.training:
@@ -371,14 +394,53 @@ class VideoChapterClassifier(nn.Module):
         )
         
         # Classification head
+        # self.classifier = nn.Sequential(
+        #     nn.LayerNorm(config.hidden_size),
+        #     nn.Dropout(0.1),
+        #     nn.Linear(config.hidden_size, config.hidden_size//2),
+        #     nn.SiLU(),
+        #     nn.LayerNorm(config.hidden_size//2),
+        #     nn.Dropout(0.3),
+        #     nn.Linear(config.hidden_size//2, 2)
+        # )
+        # layer 6 - hidden//8까지
         self.classifier = nn.Sequential(
             nn.LayerNorm(config.hidden_size),
-            nn.Dropout(0.1),
+            nn.Dropout(0.2),
+            nn.Linear(config.hidden_size, config.hidden_size),
+            nn.SiLU(),
+
+            nn.LayerNorm(config.hidden_size),
+            nn.Dropout(0.2),
+            nn.Linear(config.hidden_size, config.hidden_size),
+            nn.SiLU(),
+
+            nn.LayerNorm(config.hidden_size),
+            nn.Dropout(0.2),
+            nn.Linear(config.hidden_size, config.hidden_size),
+            nn.SiLU(),
+
+            nn.LayerNorm(config.hidden_size),
+            nn.Dropout(0.2),
             nn.Linear(config.hidden_size, config.hidden_size//2),
             nn.SiLU(),
+
             nn.LayerNorm(config.hidden_size//2),
-            nn.Dropout(0.3),
-            nn.Linear(config.hidden_size//2, 2)
+            nn.Dropout(0.2),
+            nn.Linear(config.hidden_size//2, config.hidden_size//4),
+            nn.SiLU(),
+
+            nn.LayerNorm(config.hidden_size//4),
+            nn.Dropout(0.2),
+            nn.Linear(config.hidden_size//4, config.hidden_size//8),
+            nn.SiLU(),
+
+            nn.LayerNorm(config.hidden_size//8),
+            nn.Dropout(0.2),
+            nn.Linear(config.hidden_size//8, config.hidden_size//16),
+            nn.SiLU(),
+
+            nn.Linear(config.hidden_size//16, 2)
         )
 
         self._init_weights()

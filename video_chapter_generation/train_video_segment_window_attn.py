@@ -1,6 +1,5 @@
 """
 Train models (language, vision or both) on youtube dataset
-
 """
 
 import os
@@ -19,7 +18,7 @@ from transformers import BertTokenizer
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from torch.optim.lr_scheduler import OneCycleLR, CosineAnnealingWarmRestarts
-# from transformers import get_cosine_schedule_with_warmup
+from transformers import get_cosine_schedule_with_warmup
 
 from model.lang import bert_hugface
 from model.vision import resnet50_tsm
@@ -65,11 +64,12 @@ class Trainer:
         raw_model = self.model.module if hasattr(self.model, "module") else self.model
         self.optimizer = raw_model.configure_optimizers(self.config)
 
-        # self.scheduler = get_cosine_schedule_with_warmup(
-        #     self.optimizer,
-        #     num_warmup_steps=int(num_training_steps * config.warmup_ratio),
-        #     num_training_steps=len(train_dataset) // config.batch_size * config.max_epochs
-        # )
+        num_training_steps = len(train_dataset) // config.batch_size * config.max_epochs
+        self.scheduler = get_cosine_schedule_with_warmup(
+            self.optimizer,
+            num_training_steps=num_training_steps,
+            num_warmup_steps=int(num_training_steps * config.warmup_ratio)
+        )
 
         # self.scheduler = OneCycleLR(
         #     self.optimizer,
@@ -82,12 +82,12 @@ class Trainer:
         #     final_div_factor=1e3     # 최종 lr = 초기 lr/1000
         # )
 
-        self.scheduler = CosineAnnealingWarmRestarts(
-            self.optimizer,
-            T_0=15,  # 첫 주기: 15 epochs
-            T_mult=2,  # 이후 30, 60 epochs 주기
-            eta_min=5e-7 # 최소 lr
-        )
+        # self.scheduler = CosineAnnealingWarmRestarts(
+        #     self.optimizer,
+        #     T_0=15,  # 첫 주기: 15 epochs
+        #     T_mult=2,  # 이후 30, 60 epochs 주기
+        #     eta_min=5e-7 # 최소 lr
+        # )
 
     def save_checkpoint(self, epoch, best_result):        
         raw_model = self.model.module if hasattr(self.model, "module") else self.model
@@ -295,6 +295,7 @@ class Trainer:
                                 self.config.grad_norm_clip
                             )
                             self.optimizer.step()
+                            self.scheduler.step()
 
                             self.process_train_step(binary_prob, labels, loss, it, loader, epoch, pbar)
                         
@@ -323,8 +324,8 @@ class Trainer:
                         logger.error(f"{error_msg}: {type(e).__name__}: {str(e)}")
                         logger.error("Full traceback:", exc_info=True)
                         raise type(e)(f"{error_msg}: {str(e)}")
-                if is_train:
-                    self.scheduler.step()
+                # if is_train:
+                #     self.scheduler.step()
                 if not is_train:
                     return self.calculate_epoch_metrics(dataset, losses, epoch)
                 return None
@@ -403,7 +404,7 @@ class Trainer:
     
 def parse_args():
     parser = argparse.ArgumentParser(description='video chapter model')
-    parser.add_argument('--gpu_ids', default='0,1', type=str,help='gpu ids to use (e.g., "0,1,2"). -1 for CPU')
+    parser.add_argument('--gpu_ids', default='0', type=str,help='gpu ids to use (e.g., "0,1,2"). -1 for CPU')
     parser.add_argument('--data_mode', default="all", type=str)
     parser.add_argument('--model_type', default="two_stream", type=str)
     parser.add_argument('--clip_frame_num', default=16, type=int)
@@ -420,7 +421,7 @@ if __name__ == "__main__":
     # Paths
     vision_pretrain_ckpt_path = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/r50tsm/batch_{args.batch_size}_lr_decay_cosine_train_test_split/pretrain.pth"
     lang_pretrain_ckpt_path = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/hugface_bert_pretrain/batch_{args.batch_size}_lr_decay_cosine_train_test_split/pretrain.pth"
-    ckpt_path = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/chapter_localization/cross_attn_window_attn/checkpoint.pth"
+    ckpt_path = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/chapter_localization/base_cosine/checkpoint.pth"
     img_dir = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/youtube_video_frame_dataset"
     data_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/all_in_one_with_subtitle_final.csv"
     test_clips_json = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/validation_clips_clip_frame_num_{args.clip_frame_num}_50p.json"

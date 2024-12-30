@@ -120,11 +120,10 @@ class Trainer:
         pbar = tqdm(enumerate(loader), total=len(loader))
 
         for it, (img_clip, text_ids, attention_mask, label) in pbar:
-            if not is_train:
-                print(f'img_clip: {img_clip.shape}')
-                print(f'text_ids: {text_ids.shape}')
-                print(f'attention_mask: {attention_mask.shape}')
-                print(f'label: {label}')
+            print(f'img_clip: {img_clip.shape}')
+            print(f'text_ids: {text_ids.shape}')
+            print(f'attention_mask: {attention_mask.shape}')
+            print(f'label: {label}')
 
         # for it, (img_clips, text_ids, attention_masks, label, target_idx) in pbar:
             
@@ -273,7 +272,7 @@ if __name__ == "__main__":
     parser.add_argument('--model_type', default="two_stream", type=str, help="bert, r50tsm, two_stream")
     parser.add_argument('--clip_frame_num', default=16, type=int)
     parser.add_argument('--epoch', default=280, type=int)
-    parser.add_argument('--batch_size', default=1, type=int)
+    parser.add_argument('--batch_size', default=32, type=int)
     parser.add_argument('--lr_decay_type', default="cosine", type=str)
     parser.add_argument('--head_type', default="mlp", type=str, help="mlp or attn, only work on two_stream model")
     args = parser.parse_args()
@@ -289,7 +288,7 @@ if __name__ == "__main__":
     vision_pretrain_ckpt_path = f"/home/work/VCG/Video-Chapter-Generation/video_chapter_generation/checkpoint/r50tsm/batch_{batch_size}_lr_decay_cosine_train_test_split/pretrain.pth"
     lang_pretrain_ckpt_path = f"/home/work/VCG/Video-Chapter-Generation/video_chapter_generation/checkpoint/hugface_bert_pretrain/batch_{batch_size}_lr_decay_cosine_train_test_split/pretrain.pth"
     # ckpt_path = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/{args.data_mode}/{args.model_type}_validation/batch_{batch_size}_head_type_{args.head_type}_clip_frame_num_{args.clip_frame_num}/checkpoint.pth"
-    ckpt_path = f"/home/work/VCG/Video-Chapter-Generation/video_chapter_generation/checkpoint/test/head_{args.head_type}_batch_{batch_size}_v2/checkpoint.pth"
+    ckpt_path = f"/home/work/VCG/Video-Chapter-Generation/video_chapter_generation/checkpoint/chapter_localizatoin/test/checkpoint.pth"
     img_dir = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/youtube_video_frame_dataset"
     data_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/all_in_one_with_subtitle_final.csv"
     test_clips_json = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/debugging_val_clips_clip_frame_num_{clip_frame_num}.json"
