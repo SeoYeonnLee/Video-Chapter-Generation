@@ -16,10 +16,12 @@
 *.zip
 *.tar
 *.pickle
-video_chapter_generation/checkpoint/*
+video_chapter_generation/checkpoint/
 video_chapter_generation/all_tensorboards
 video_chapter_generation/youtube_video_vision_emb_clip_frame_num_16/
+video_chapter_generation/test_results/
 video_chapter_youtube_dataset/dataset/
+video_chapter_youtube_dataset/dataset_fps4/
 video_chapter_youtube_dataset/vids/
 video_chapter_youtube_dataset/test_results/
 video_chapter_youtube_dataset/dataset_stats_result/
