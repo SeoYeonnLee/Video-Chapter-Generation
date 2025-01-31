@@ -5,7 +5,7 @@ import multiprocessing
 import multiple_process_utils
 from tqdm import tqdm
 
-def extract_frame_fn(process_idx, video_files, durations, video_frame_dir, extract_fps=1, progress_queue=None):
+def extract_frame_fn(process_idx, video_files, durations, video_frame_dir, extract_fps=4, progress_queue=None):
     for i, video_file in enumerate(video_files):
         if durations is not None and durations[i] > 1800:
             if progress_queue:
@@ -54,10 +54,13 @@ if __name__ == "__main__":
     video_dir = "vids"
     video_files = [os.path.join(video_dir, f"{x}.mp4") for x in vids]
 
-    video_frame_dir = "./youtube_video_frame_dataset"
+    #video_frame_dir = "./youtube_video_frame_dataset"
+    video_frame_dir = "./youtube_video_frame_dataset_fps4"
     os.makedirs(video_frame_dir, exist_ok=True)
 
-    extract_fps = 1
+    #extract_fps = 1
+    # fps 4로 조정
+    extract_fps = 4
 
     # multiple process
     process_num = 8

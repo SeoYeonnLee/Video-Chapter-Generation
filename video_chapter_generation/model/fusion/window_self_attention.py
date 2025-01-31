@@ -59,7 +59,7 @@ class VideoChapterWindowAttention(nn.Module):
         self.window_pos_bias = nn.Parameter(torch.zeros(1, num_attention_heads, 1, window_size))
 
         # Initialize weights
-        self._init_weights()
+        # self._init_weights()
 
     def _init_weights(self):
         scale = 1.0 / math.sqrt(self.attention_head_size)
@@ -233,16 +233,16 @@ class VideoChapterBlock(nn.Module):
             nn.Dropout(0.15)
         )
 
-        self._init_weights()
+        # self._init_weights()
 
     def _init_weights(self):
-        print("Starting block initialization")
+        # print("Starting block initialization")
         try:
             # FFN layers 초기화
             for i, module in enumerate(self.ffn):
-                print(f"FFN layer {i}: {type(module)}")
+                # print(f"FFN layer {i}: {type(module)}")
                 if isinstance(module, nn.Linear):
-                    print(f"Linear shape: in={module.in_features}, out={module.out_features}")
+                    # print(f"Linear shape: in={module.in_features}, out={module.out_features}")
                     if module.in_features == module.out_features:
                         nn.init.kaiming_normal_(module.weight, mode='fan_in')
                         module.weight.data *= 0.1
@@ -253,11 +253,11 @@ class VideoChapterBlock(nn.Module):
             # Layer norms
             for name, module in self.named_modules():
                 if isinstance(module, nn.LayerNorm):
-                    print(f"Initializing LayerNorm: {name}")
+                    # print(f"Initializing LayerNorm: {name}")
                     nn.init.constant_(module.weight, 1.0)
                     nn.init.constant_(module.bias, 0.0)
                     
-            print("Finished block initialization")
+            # print("Finished block initialization")
         except Exception as e:
             print(f"Error in block init: {str(e)}")
             raise
@@ -397,34 +397,44 @@ class VideoChapterClassifier(nn.Module):
             nn.Linear(config.hidden_size//2, 2)
         )
         # self.classifier = nn.Sequential(
-        #     nn.LayerNorm(config.hidden_size),
-        #     nn.Dropout(0.1),
-        #     nn.Linear(config.hidden_size, config.hidden_size//2),
-        #     nn.SiLU(),
-
-        #     nn.LayerNorm(config.hidden_size//2),
+        #     nn.Linear(config.hidden_size, config.hidden_size * 2),
+        #     nn.LayerNorm(config.hidden_size * 2),
         #     nn.Dropout(0.2),
-        #     nn.Linear(config.hidden_size//2, config.hidden_size//4),
         #     nn.SiLU(),
 
-        #     nn.LayerNorm(config.hidden_size//4),
-        #     nn.Dropout(0.3),
-        #     nn.Linear(config.hidden_size//4, config.hidden_size//8),
+        #     nn.Linear(config.hidden_size * 2, config.hidden_size * 4),
+        #     nn.LayerNorm(config.hidden_size * 4),
+        #     nn.Dropout(0.2),
         #     nn.SiLU(),
 
-        #     nn.Linear(config.hidden_size//8, 2)
+        #     nn.Linear(config.hidden_size * 4, config.hidden_size * 2),
+        #     nn.LayerNorm(config.hidden_size * 2),
+        #     nn.Dropout(0.2),
+        #     nn.SiLU(),
+
+        #     nn.Linear(config.hidden_size * 2, config.hidden_size),
+        #     nn.LayerNorm(config.hidden_size),
+        #     nn.Dropout(0.2),
+        #     nn.SiLU(),
+
+        #     nn.Linear(config.hidden_size, config.hidden_size // 2),
+        #     nn.LayerNorm(config.hidden_size // 2),
+        #     nn.Dropout(0.2),
+        #     nn.SiLU(),
+
+        #     nn.Linear(config.hidden_size//2, 2)
         # )
 
-        self._init_weights()
+        # self._init_weights()
 
     def _init_weights(self):
-        print("Starting classifier initialization")
+        # print("Starting classifier initialization")
         try:
             # Classifier layers 초기화
             for i, layer in enumerate(self.classifier):
-                print(f"Initializing layer {i}: {type(layer)}")
+                # print(f"Initializing layer {i}: {type(layer)}")
                 if isinstance(layer, nn.Linear):
-                    print(f"Linear layer shape: in={layer.in_features}, out={layer.out_features}")
+                    # print(f"Linear layer shape: in={layer.in_features}, out={layer.out_features}")
                     if layer.out_features == 2:  # 출력 레이어
                         nn.init.xavier_uniform_(layer.weight, gain=1.0)
                         nn.init.zeros_(layer.bias)
@@ -436,10 +446,10 @@ class VideoChapterClassifier(nn.Module):
                         )
                         nn.init.constant_(layer.bias, 0.01)
                 elif isinstance(layer, nn.LayerNorm):
-                    print(f"LayerNorm layer normalized_shape={layer.normalized_shape}")
+                    # print(f"LayerNorm layer normalized_shape={layer.normalized_shape}")
                     nn.init.constant_(layer.weight, 1.0)
                     nn.init.constant_(layer.bias, 0.0)
-            print("Finished classifier initialization")
+            # print("Finished classifier initialization")
         except Exception as e:
             print(f"Error during initialization: {str(e)}")
             raise

@@ -24,7 +24,7 @@ from common_utils import set_random_seed
 from eval_utils.eval_utils import convert_clip_label2cut_point, calculate_pr
 from model.lang import bert_hugface
 from model.vision import resnet50_tsm, resnet50
-from model.fusion import two_stream
+from model.fusion import two_stream, two_stream_window
 
 
 
@@ -95,9 +95,9 @@ if __name__ == "__main__":
         vision_base_model = vision_model.base_model
         hidden_size = 128
         model = two_stream.TwoStream(lang_base_model, vision_base_model, lang_model.embed_size, vision_model.feature_dim, clip_frame_num, hidden_size)
+
         model.build_chapter_head(output_size=2, head_type=args.head_type)
         model = model.to(args.gpu)
-
         checkpoint = torch.load(ckpt_path)
         start_epoch = checkpoint["epoch"]
         best_result = checkpoint["best_result"]

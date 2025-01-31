@@ -476,7 +476,7 @@ class TwoStream(nn.Module):
                 # del lang_emb, clip_frames, frames, frame_emb
 
             # Stack all embeddings
-            all_fusion_embs = torch.stack(clip_fusion_embs, dim=1).to(device)
+            all_fusion_embs = torch.stack(clip_fusion_embs, dim=1).to(device) # [batch, num_clips, hidden size]
             binary_logits, binary_prob = self.window_head(all_fusion_embs, clip_info)
 
             # del all_fusion_embs, clip_fusion_embs

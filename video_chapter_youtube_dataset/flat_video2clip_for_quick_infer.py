@@ -9,7 +9,7 @@ from dataset_process_scripts.load_dataset_utils import parse_csv_to_list, extrac
 from tqdm import tqdm
 
 
-def flat_videos2clips(img_dir, data_file, test_vid_file, clip_frame_num=12):
+def flat_videos2clips(img_dir, data_file, test_vid_file, clip_frame_num=32, fps=4): # 12 -> 32 수정
     half_clip_frame_num = int(clip_frame_num // 2)
 
     # processed vids
@@ -51,17 +51,19 @@ def flat_videos2clips(img_dir, data_file, test_vid_file, clip_frame_num=12):
         for timestamp_str in timestamp:
             gap = 0
             sec, description = extract_first_timestamp(timestamp_str)
-            if sec < 4:
+            if sec < 4*fps: # 4 -> 4*fps
                 continue
-            if sec > image_num - 4:
+            if sec > image_num - 4*fps: # 4 -> 4*fps
                 continue
             
             cut_points.append(sec)
             descriptions.append(description)
 
         # go through all clips within this video
-        max_offset = 2
-        clips = [[start_t, start_t + clip_frame_num] for start_t in range(0, image_num - clip_frame_num, 2 * max_offset)]
+        # offset 수정
+        max_offset = 2*fps # 2 -> 8
+        
+        clips = [[start_t, start_t + clip_frame_num] for start_t in range(0, image_num - clip_frame_num, 2 * max_offset)] # 4초 간격으로 8초 짜리 클립 생성
         batch_num = len(clips)
         for batch_i in range(batch_num):
             # this clip's start and end time
@@ -82,11 +84,11 @@ def flat_videos2clips(img_dir, data_file, test_vid_file, clip_frame_num=12):
                     label = 1
 
             # get the subtitle in-between [clip_start_sec - text_extra_time_gap, clip_end_sec + text_extra_time_gap]
-            text_extra_time_gap = 1
+            text_extra_time_gap = 1*fps # 1 -> 1*fps
             text_clip = ""
             for sub in subtitles:
                 text = sub["text"]
-                start_sec = sub["start"]
+                start_sec = sub["start"]*fps # sub["start"] -> sub["start"]*fps
                 if clip_start_sec - text_extra_time_gap < start_sec < clip_end_sec + text_extra_time_gap:
                     if len(text_clip) == 0:
                         text_clip += text
@@ -98,10 +100,11 @@ def flat_videos2clips(img_dir, data_file, test_vid_file, clip_frame_num=12):
             for idx in range(clip_start_sec, clip_end_sec):
                 # There is a bug ffmpeg extract frame, which causes the image misalign frame. 
                 # We offset right frame 2 unit, but keep the beginning and the end not change.  
-                if clip_start_sec <= 2 or clip_start_sec >= image_num - clip_frame_num - 2:
+                if clip_start_sec <= 2 or clip_start_sec >= image_num - clip_frame_num - 2: # 프레임 정렬 보정 하지 않을 시작, 끝 부분 
                     image_filename = "%05d.jpg"%(idx+1)
                 else:
-                    image_filename = "%05d.jpg"%(idx+3)
+                    # 프레임 추출 시 alignment 보정을 위해 오프셋 설정이 3으로 되어있었음
+                    image_filename = "%05d.jpg"%(idx+3) # 원래 offset 유지
                 image_filename = os.path.join(image_path, image_filename)
                 img_path_list.append(image_filename)
 
@@ -129,10 +132,10 @@ def flat_videos2clips(img_dir, data_file, test_vid_file, clip_frame_num=12):
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description='video chapter model')
-    parser.add_argument('--clip_frame_num', default=12, type=int)
+    parser.add_argument('--clip_frame_num', default=32, type=int) # 12 -> 32 수정
     args = parser.parse_args()
 
-    img_dir = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/youtube_video_frame_dataset"
+    img_dir = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/youtube_video_frame_dataset_fps4" # fps4 경로로 변경
     data_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/all_in_one_with_subtitle_final.csv"
     # test_vid_file = "/opt/tiger/video_chapter_youtube_dataset/dataset/test.txt"
     # test_vid_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/final_test.txt"
@@ -141,11 +144,16 @@ if __name__ == "__main__":
 
 
     clip_frame_num = args.clip_frame_num
-    all_clip_infos = flat_videos2clips(img_dir, data_file, test_vid_file, clip_frame_num)
+    all_clip_infos = flat_videos2clips(img_dir, data_file, test_vid_file, clip_frame_num, fps=4)
 
     # save all test clips
     # save_json_file = f"/opt/tiger/video_chapter_youtube_dataset/dataset/test_clips_clip_frame_num_{clip_frame_num}.json"
-    save_json_file = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/validation_clips_clip_frame_num_{clip_frame_num}.json"
+    #save_json_file = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/validation_clips_clip_frame_num_{clip_frame_num}.json"
+    
+    # save 저장 위치 수정
+    save_json_file = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset_fps4/validation_clips_clip_frame_num_{clip_frame_num}.json"
+    os.makedirs(os.path.dirname(save_json_file), exist_ok=True)
+
     # save_json_file = f"/opt/tiger/video_chapter_youtube_dataset/dataset/all_clips_clip_frame_num_{clip_frame_num}.json"
     with open(save_json_file, "w") as f:
         json.dump(all_clip_infos, f)
