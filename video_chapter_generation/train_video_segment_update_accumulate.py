@@ -298,11 +298,11 @@ if __name__ == "__main__":
     parser.add_argument('--gpu', default=0, type=int)
     parser.add_argument('--data_mode', default="all", type=str, help="text (text only), image (image only) or all (multiple-model)")
     parser.add_argument('--model_type', default="two_stream", type=str, help="bert, r50tsm, two_stream")
-    parser.add_argument('--clip_frame_num', default=16, type=int)
+    parser.add_argument('--clip_frame_num', default=32, type=int)
     parser.add_argument('--epoch', default=270, type=int)
     parser.add_argument('--batch_size', default=4, type=int)
     parser.add_argument('--lr_decay_type', default="cosine", type=str)
-    parser.add_argument('--head_type', default="mlp", type=str, help="mlp, self_attn, cross_attn, only work on two_stream model")
+    parser.add_argument('--head_type', default="cross_attn", type=str, help="mlp, self_attn, cross_attn, only work on two_stream model")
     parser.add_argument('--window_size', default=1, type=int)
     args = parser.parse_args()
 
@@ -318,10 +318,10 @@ if __name__ == "__main__":
     vision_pretrain_ckpt_path = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/r50tsm/batch_{batch_size}_lr_decay_cosine_train_test_split/pretrain.pth"
     lang_pretrain_ckpt_path = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/hugface_bert_pretrain/batch_{batch_size}_lr_decay_cosine_train_test_split/pretrain.pth"
     # ckpt_path = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/{args.data_mode}/{args.model_type}_validation/batch_{batch_size}_head_type_{args.head_type}_clip_frame_num_{args.clip_frame_num}/checkpoint.pth"
-    ckpt_path = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/chapter_localization/MVCG_window_attn_8_accumulation_2e-6_fullval/checkpoint.pth"
-    img_dir = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/youtube_video_frame_dataset"
+    ckpt_path = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/chapter_localization/MVCG_cross_window_attn_8_accumulation_2e-6_fullval_fps4/checkpoint.pth"
+    img_dir = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/youtube_video_frame_dataset_fps4"
     data_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/all_in_one_with_subtitle_final.csv"
-    test_clips_json = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/validation_clips_clip_frame_num_{args.clip_frame_num}.json"
+    test_clips_json = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset_fps4/validation_clips_clip_frame_num_32.json"
 
     train_vid_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/final_train.txt"
     test_vid_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/final_validation.txt"
@@ -360,7 +360,7 @@ if __name__ == "__main__":
             model = vision_model
             model.build_chapter_head()
             model = model.to(args.gpu)
-            model = torch.nn.DataParallel(model, device_ids=[0,1,2,3])
+            model = torch.nn.DataParallel(model, device_ids=[0,1])
         elif args.data_mode == "all":
             lang_base_model = lang_model.base_model
             vision_base_model = vision_model.base_model
@@ -382,7 +382,7 @@ if __name__ == "__main__":
                 args.window_size)
             model.build_chapter_head(output_size=2, head_type=args.head_type)
             model = model.to(args.gpu)
-            model = torch.nn.DataParallel(model, device_ids=[0,1,2,3])
+            model = torch.nn.DataParallel(model, device_ids=[0,1])
         else:
             raise RuntimeError(f"Unknown data mode {args.data_mode}")
         

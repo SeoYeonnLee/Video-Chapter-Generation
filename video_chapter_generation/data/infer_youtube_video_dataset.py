@@ -428,7 +428,8 @@ class InferYoutubeAllClipDataset:
 
 class InferWindowClipDataset:
     def __init__(self, img_dir, json_paths, tokenizer, clip_frame_num, max_text_len, window_size=2, mode="all", transform=None):
-        self.max_offset = 2
+        self.fps = 4 # add fps value
+        self.max_offset = 2 * self.fps # apply fps
         self.tokenizer = tokenizer
         self.clip_frame_num = clip_frame_num
         self.max_text_len = max_text_len
@@ -508,7 +509,11 @@ class InferWindowClipDataset:
             if self.mode != "text":
                 clip_imgs = []
                 for frame_idx in range(start_sec, end_sec):
-                    image_filename = f"{frame_idx+1:05d}.jpg"
+                    # fps에 따른 조건문 추가
+                    if start_sec <= 2 or start_sec >= image_num - self.clip_frame_num - 2:
+                        image_filename = f"{frame_idx+1:05d}.jpg"
+                    else:
+                        image_filename = f"{frame_idx+3:05d}.jpg"
                     image_path_full = os.path.join(image_path, image_filename)
                     # img = Image.open(image_path_full).convert('RGB')
                     with Image.open(image_path_full) as img:  # context manager 사용

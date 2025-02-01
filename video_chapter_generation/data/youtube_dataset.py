@@ -362,6 +362,7 @@ class WindowClipDataset:
         self.mode = mode
         self.half_clip_frame_num = int(self.clip_frame_num//2)
         self.img_dir = img_dir
+        self.fps = 4 # add fps value
 
         # Load video info
         all_vids, titles, durations, timestamps = parse_csv_to_list(data_file)
@@ -397,12 +398,12 @@ class WindowClipDataset:
         cut_points = []
         for timestamp_str in timestamp:
             sec, _ = extract_first_timestamp(timestamp_str)
-            if sec < 4 or sec > image_num:
+            if sec < 4*self.fps or sec > image_num - 4*self.fps: # apply fps
                 continue
             cut_points.append(sec)
 
         # Segment into clips
-        max_offset = 2    
+        max_offset = 2 * self.fps # apply fps
         clips = [[start_t, start_t + self.clip_frame_num] 
                 for start_t in range(0, image_num - self.clip_frame_num, 2 * max_offset)]
         
@@ -485,7 +486,7 @@ class WindowClipDataset:
             # Process text
             text_clip = "[CLS] "
             for sub in subtitles:
-                if start_sec - 1 < sub["start"] < end_sec + 1:
+                if start_sec - self.fps < sub["start"] < end_sec + self.fps: # 1 -> self.fps
                     text_clip += sub["text"] + " "
 
             tokens = self.tokenizer.tokenize(text_clip)[:self.max_text_len]
