@@ -19,12 +19,13 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 from sklearn import metrics
 from transformers import BertTokenizer
-from data.infer_youtube_video_dataset import InferYoutubeClipDataset
+from data.infer_youtube_video_dataset import InferYoutubeClipDataset, InferWindowClipDataset
 from common_utils import set_random_seed
 from eval_utils.eval_utils import convert_clip_label2cut_point, calculate_pr
 from model.lang import bert_hugface
 from model.vision import resnet50_tsm, resnet50
-from model.fusion import two_stream, two_stream_window
+from model.fusion import two_stream_window
+from tqdm import tqdm
 
 
 
@@ -32,15 +33,16 @@ if __name__ == "__main__":
     set_random_seed.use_fix_random_seed()
     import argparse
     parser = argparse.ArgumentParser(description='video chapter model')
-    parser.add_argument('--gpu', default=2, type=int)
+    parser.add_argument('--gpu', default=0, type=int)
     parser.add_argument('--data_mode', default="all", type=str, help="text (text only), image (image only) or all (multiple-model)")
     parser.add_argument('--model_type', default="two_stream", type=str, help="bert, r50tsm, r50, two_stream")
     parser.add_argument('--clip_frame_num', default=16, type=int)
     parser.add_argument('--epoch', default=3000, type=int)
-    parser.add_argument('--batch_size', default=8, type=int)
+    parser.add_argument('--batch_size', default=16, type=int)
     parser.add_argument('--lr_decay_type', default="cosine", type=str)
-    parser.add_argument('--head_type', default="mlp", type=str, help="only work on two_stream model")
+    parser.add_argument('--head_type', default="cross_attn", type=str, help="only work on two_stream model")
     parser.add_argument('--data_type', default="all", type=str, help="all, easy, hard, ambiguous")
+    parser.add_argument('--window_size', default=1, type=int)
     args = parser.parse_args()
 
     # other hyperparameters
@@ -51,10 +53,10 @@ if __name__ == "__main__":
     #     b = 32
     # else:
     #     b = 64
-    checkpoint_dir = f"MVCG_window_attn_8"#{args.batch_size}"
-    ckpt_path = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/localization/{checkpoint_dir}/checkpoint_30_score_0.3590.pth"
+    checkpoint_dir = f"MVCG_cross_window_attn_8_accumulation_2e-6_fullval"#{args.batch_size}"
+    ckpt_path = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/chapter_localization/{checkpoint_dir}/checkpoint_150_score_0.3682.pth"
     result_file = f"./test_results/chapter_localization/{checkpoint_dir}_.txt"
-    vid2cut_points_file = f"./test_results/{checkpoint_dir}_vid2cut_points.json"
+    vid2cut_points_file = f"./test_results/chapter_localization/{checkpoint_dir}_vid2cut_points.json"
     data_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/all_in_one_with_subtitle_final.csv"
     test_clips_json = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/test_clips_clip_frame_num_{clip_frame_num}.json"
     # test_easy_clips_json = f"/opt/tiger/video_chapter_youtube_dataset/dataset/test_easy_clips_clip_frame_num_{clip_frame_num}.json"
@@ -94,10 +96,17 @@ if __name__ == "__main__":
         lang_base_model = lang_model.base_model
         vision_base_model = vision_model.base_model
         hidden_size = 128
-        model = two_stream.TwoStream(lang_base_model, vision_base_model, lang_model.embed_size, vision_model.feature_dim, clip_frame_num, hidden_size)
-
+        model = two_stream_window.TwoStream(
+            lang_base_model,
+            vision_base_model,
+            lang_model.embed_size,
+            vision_model.feature_dim,
+            clip_frame_num,
+            hidden_size,
+            args.window_size)
         model.build_chapter_head(output_size=2, head_type=args.head_type)
         model = model.to(args.gpu)
+
         checkpoint = torch.load(ckpt_path)
         start_epoch = checkpoint["epoch"]
         best_result = checkpoint["best_result"]
@@ -144,7 +153,8 @@ if __name__ == "__main__":
     ])
 
     if args.data_type == "all":
-        infer_video_dataset = InferYoutubeClipDataset(img_dir, test_clips_json, tokenizer, clip_frame_num, max_text_len, mode=args.data_mode, transform=test_vision_preprocess)
+        # infer_video_dataset = InferYoutubeClipDataset(img_dir, test_clips_json, tokenizer, clip_frame_num, max_text_len, mode=args.data_mode, transform=test_vision_preprocess)
+        infer_video_dataset = InferWindowClipDataset(img_dir, test_clips_json, tokenizer, clip_frame_num, max_text_len, window_size=args.window_size, mode=args.data_mode, transform=test_vision_preprocess)
     elif args.data_type == "easy":
         infer_video_dataset = InferYoutubeClipDataset(img_dir, test_easy_clips_json, tokenizer, clip_frame_num, max_text_len, mode=args.data_mode, transform=test_vision_preprocess)
     elif args.data_type == "hard":         
@@ -163,18 +173,20 @@ if __name__ == "__main__":
     all_pred_label = []
     all_pred_score = []
     batch_i = -1
-    for img_clip, text_ids, attention_mask, label in infer_video_loader:
+    pbar = tqdm(infer_video_loader, total=len(infer_video_loader))
+    for img_clip, text_ids, attention_mask, label, clip_info in pbar:
         global_st = time.time()
         batch_i += 1
-        print(f"process {batch_i}/{len(infer_video_loader)}...")
+        # print(f"process {batch_i}/{len(infer_video_loader)}...")
 
         st = time.time()
         img_clip = img_clip.float().to(args.gpu)
         text_ids = text_ids.to(args.gpu)
         attention_mask = attention_mask.to(args.gpu)   
         label = label.to(args.gpu)
+        clip_info = {k: v.to(args.gpu) for k, v in clip_info.items()}
         et = time.time()
-        print(f"cost time1 {et - st}s")
+        # print(f"cost time1 {et - st}s")
 
         # frame index
         start_idx = batch_i * args.batch_size
@@ -188,12 +200,12 @@ if __name__ == "__main__":
             elif args.data_mode == "image":
                 binary_logits, binary_prob = model(img_clip)
             elif args.data_mode == "all":
-                binary_logits, binary_prob = model(img_clip, text_ids, attention_mask)    
+                binary_logits, binary_prob = model(img_clip, text_ids, attention_mask, clip_info)    
             else:
                 raise RuntimeError(f"Unknown data mode {args.data_mode}")
 
             et = time.time()
-            print(f"cost time2 {et - st}s")
+            # print(f"cost time2 {et - st}s")
 
             st = time.time()
             topk_scores, topk_labels = binary_logits.data.topk(1, 1, True, True)
@@ -204,10 +216,10 @@ if __name__ == "__main__":
             all_pred_score.extend(list(scores))
 
         et = time.time()
-        print(f"cost time3 {et - st}s")
+        # print(f"cost time3 {et - st}s")
         
         global_et = time.time()
-        print(f"global cost time {global_et - global_st}s")
+        # print(f"global cost time {global_et - global_st}s")
 
         del img_clip, text_ids, attention_mask, label
         del binary_logits, binary_prob, topk_scores, topk_labels
@@ -219,7 +231,7 @@ if __name__ == "__main__":
         infer_video_dataset.all_clip_infos[i]["pred_score"] = all_pred_score[i]
         infer_video_dataset.all_clip_infos[i]["pred_label"] = all_pred_label[i]
     et = time.time()
-    print(f"cost time 3 {et - st}s")
+    # print(f"cost time 3 {et - st}s")
 
     
     # calculate evaluation metrics
