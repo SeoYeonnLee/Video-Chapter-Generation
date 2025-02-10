@@ -8,8 +8,11 @@ from model.fusion.window_self_attention import VideoChapterClassifier
 
 
 class CrossAttention(nn.Module):
-    def __init__(self, hidden_size, num_heads, dropout=0.1):
+    def __init__(self, hidden_size, num_heads, window_size, dropout=0.1):
         super().__init__()
+        self.window_size = window_size
+        self.num_windows = 2 * window_size + 1
+
         self.hidden_size = hidden_size
         self.num_heads = num_heads
         self.head_dim = hidden_size // num_heads
@@ -47,13 +50,15 @@ class CrossAttention(nn.Module):
         self.fusion_alpha = nn.Parameter(torch.tensor(0.5))
 
         # FFN
-        self.ffn = nn.Sequential(
-            nn.Linear(hidden_size, hidden_size * 4),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_size * 4, hidden_size),
-            nn.Dropout(dropout)
-        )
+        self.ffn = nn.ModuleList([
+            nn.Sequential(
+                nn.Linear(hidden_size, hidden_size * 4),
+                nn.GELU(),
+                nn.Dropout(dropout),
+                nn.Linear(hidden_size * 4, hidden_size),
+                nn.Dropout(dropout)
+            ) for _ in range(self.num_windows)
+        ])
 
         # Dropouts
         self.attention_dropout = nn.Dropout(dropout)
@@ -88,7 +93,7 @@ class CrossAttention(nn.Module):
         positions = torch.clamp(positions, 0, 1)
         return positions.unsqueeze(-1)  # [num_frames, 1]
 
-    def forward(self, lang_emb, vision_emb):
+    def forward(self, lang_emb, vision_emb, window_idx):
         """
         Args:
             lang_emb: [batch, hidden_size]
@@ -146,7 +151,7 @@ class CrossAttention(nn.Module):
 
         # FFN and residual connection
         normed_fusion = self.ffn_norm(fusion_emb)  # [batch, 1, hidden_size]
-        ffn_output = self.ffn(normed_fusion)  # [batch, 1, hidden_size]
+        ffn_output = self.ffn[window_idx](normed_fusion)  # [batch, 1, hidden_size]
         fusion_emb = ffn_output + fusion_emb  # [batch, 1, hidden_size]
 
         return fusion_emb.squeeze(1)  # [batch, hidden_size]
@@ -236,7 +241,7 @@ class ChapterHead(nn.Module):
             self.head = SelfAttention(hidden_size, 4, hidden_size)
         elif self.head_type == "cross_attn":
             print(f'head type: cross attention')
-            self.head = CrossAttention(hidden_size, num_heads=4)
+            self.head = CrossAttention(hidden_size, num_heads=4, window_size=self.window_size)
             self.output_proj = nn.Linear(hidden_size, output_size)
 
         else:
@@ -270,7 +275,7 @@ class ChapterHead(nn.Module):
             fusion_emb = torch.cat([vision_out, lang_out.unsqueeze(1)], dim=1)
             fusion_emb = self.head(fusion_emb) # 검수 필요
         elif self.head_type == "cross_attn":
-            fusion_emb = self.head(lang_out, vision_out)  # [batch, hidden_size]
+            fusion_emb = self.head(lang_out, vision_out, window_idx)  # [batch, hidden_size]
             out = self.output_proj(fusion_emb)
 
         return fusion_emb
@@ -418,32 +423,12 @@ class TwoStream(nn.Module):
             }
             lang_model_output = self.lang_model(**lang_model_inputs)
             lang_emb = lang_model_output.pooler_output
-            # cache_key = f"{clip_text_ids.shape}_{hash(clip_text_ids.cpu().numpy().tobytes())}_{hash(clip_attn_mask.cpu().numpy().tobytes())}"
-            # with torch.no_grad():
-            #     lang_emb = self.cache_manager.get_or_compute(
-            #         owner=self,
-            #         cache_name='lang_features',
-            #         key=cache_key,
-            #         compute_fn=lambda: self.lang_model(
-            #             input_ids=clip_text_ids,
-            #             attention_mask=clip_attn_mask
-            #         )["pooler_output"]
-            #     )
 
             # vision
             img_clip = img_clips[:, i]
             img_clip = rearrange(img_clip, 'b t c h w -> (b t) c h w').contiguous()
 
             vision_emb = self.vision_model(img_clip)
-            # cache_key = f"{img_clip.shape}_{hash(img_clip.cpu().numpy().tobytes())}"
-            # # with torch.no_grad():
-            # vision_emb = self.cache_manager.get_or_compute(
-            #     owner=self,
-            #     cache_name='vision_features',
-            #     key=cache_key,
-            #     compute_fn=lambda: self.vision_model(img_clip)
-            # )
-
             vision_emb = vision_emb.view(batch_size, self.segment_size, -1) # [batch, 16, 2048]
 
             clip_fusion = self.fusion_head(lang_emb, vision_emb, window_idx) # [batch, hidden_size]
