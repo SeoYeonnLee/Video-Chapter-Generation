@@ -362,7 +362,7 @@ class WindowClipDataset:
         self.mode = mode
         self.half_clip_frame_num = int(self.clip_frame_num//2)
         self.img_dir = img_dir
-        self.fps = 4 # add fps value
+        self.fps = 1 # add fps value
 
         # Load video info
         all_vids, titles, durations, timestamps = parse_csv_to_list(data_file)

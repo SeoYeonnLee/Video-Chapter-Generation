@@ -55,8 +55,8 @@ if __name__ == "__main__":
     #     b = 64
     checkpoint_dir = f"MVCG_cross_window_attn_8_accumulation_2e-6_fullval"#{args.batch_size}"
     ckpt_path = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/chapter_localization/{checkpoint_dir}/checkpoint_150_score_0.3682.pth"
-    result_file = f"./test_results/chapter_localization/{checkpoint_dir}_.txt"
-    vid2cut_points_file = f"./test_results/chapter_localization/{checkpoint_dir}_vid2cut_points.json"
+    result_file = f"./test_results/chapter_localization/{checkpoint_dir}_150epoch_.txt"
+    vid2cut_points_file = f"./test_results/chapter_localization/{checkpoint_dir}_150epoch_vid2cut_points.json"
     data_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/all_in_one_with_subtitle_final.csv"
     test_clips_json = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/test_clips_clip_frame_num_{clip_frame_num}.json"
     # test_easy_clips_json = f"/opt/tiger/video_chapter_youtube_dataset/dataset/test_easy_clips_clip_frame_num_{clip_frame_num}.json"

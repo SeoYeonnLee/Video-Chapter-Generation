@@ -111,7 +111,7 @@ class Trainer:
         for epoch in range(self.config.start_epoch+1, self.config.max_epochs+1):
             self.run_epoch('train', epoch, self.train_dataset)
 
-            if self.test_dataset is not None and epoch % 30 == 0:
+            if self.test_dataset is not None and (epoch % 30 == 0 or epoch==1):
                 infer_test_result = self.run_epoch("infer_test", epoch, self.test_dataset)
                 test_result = infer_test_result
 
@@ -133,12 +133,14 @@ class Trainer:
 
         if is_train:
             shuffle = True
+            used_batch_size = self.config.batch_size
         else:
             shuffle = False
+            used_batch_size = self.config.batch_size * 8
 
         losses = []
         
-        loader = DataLoader(dataset, shuffle=shuffle, pin_memory=True, batch_size=self.config.batch_size, num_workers=self.config.num_workers)
+        loader = DataLoader(dataset, shuffle=shuffle, pin_memory=True, batch_size=used_batch_size, num_workers=self.config.num_workers)
         # pbar = tqdm(enumerate(loader), total=len(loader)) if is_train else enumerate(loader)
         pbar = tqdm(enumerate(loader), total=len(loader))
 
@@ -168,7 +170,7 @@ class Trainer:
 
             if not is_train:
                 scores = binary_prob[:, 1].detach().cpu().numpy()
-                start_idx = it * self.config.batch_size
+                start_idx = it * used_batch_size
                 end_idx = start_idx + img_clip.shape[0]
 
                 for i in range(start_idx, end_idx):
@@ -298,7 +300,7 @@ if __name__ == "__main__":
     parser.add_argument('--gpu', default=0, type=int)
     parser.add_argument('--data_mode', default="all", type=str, help="text (text only), image (image only) or all (multiple-model)")
     parser.add_argument('--model_type', default="two_stream", type=str, help="bert, r50tsm, two_stream")
-    parser.add_argument('--clip_frame_num', default=32, type=int)
+    parser.add_argument('--clip_frame_num', default=8, type=int)
     parser.add_argument('--epoch', default=270, type=int)
     parser.add_argument('--batch_size', default=4, type=int)
     parser.add_argument('--lr_decay_type', default="cosine", type=str)
@@ -318,10 +320,10 @@ if __name__ == "__main__":
     vision_pretrain_ckpt_path = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/r50tsm/batch_{batch_size}_lr_decay_cosine_train_test_split/pretrain.pth"
     lang_pretrain_ckpt_path = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/hugface_bert_pretrain/batch_{batch_size}_lr_decay_cosine_train_test_split/pretrain.pth"
     # ckpt_path = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/{args.data_mode}/{args.model_type}_validation/batch_{batch_size}_head_type_{args.head_type}_clip_frame_num_{args.clip_frame_num}/checkpoint.pth"
-    ckpt_path = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/chapter_localization/MVCG_cross_window_attn_8_accumulation_2e-6_fullval_fps4/checkpoint.pth"
-    img_dir = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/youtube_video_frame_dataset_fps4"
+    ckpt_path = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/chapter_localization/MVCG_cross_window_attn_8_accumulation_2e-6_fullval_frame8/checkpoint.pth"
+    img_dir = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/youtube_video_frame_dataset"
     data_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/all_in_one_with_subtitle_final.csv"
-    test_clips_json = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset_fps4/validation_clips_clip_frame_num_32.json"
+    test_clips_json = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset_fps1_frame8/validation_clips_clip_frame_num_8.json"
 
     train_vid_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/final_train.txt"
     test_vid_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/final_validation.txt"

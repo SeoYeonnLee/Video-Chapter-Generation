@@ -9,7 +9,7 @@ from dataset_process_scripts.load_dataset_utils import parse_csv_to_list, extrac
 from tqdm import tqdm
 
 
-def flat_videos2clips(img_dir, data_file, test_vid_file, clip_frame_num=32, fps=4): # 12 -> 32 수정
+def flat_videos2clips(img_dir, data_file, test_vid_file, clip_frame_num=20, fps=1): # 수정
     half_clip_frame_num = int(clip_frame_num // 2)
 
     # processed vids
@@ -61,7 +61,7 @@ def flat_videos2clips(img_dir, data_file, test_vid_file, clip_frame_num=32, fps=
 
         # go through all clips within this video
         # offset 수정
-        max_offset = 2*fps # 2 -> 8
+        max_offset = 2*fps # 
         
         clips = [[start_t, start_t + clip_frame_num] for start_t in range(0, image_num - clip_frame_num, 2 * max_offset)] # 4초 간격으로 8초 짜리 클립 생성
         batch_num = len(clips)
@@ -132,10 +132,10 @@ def flat_videos2clips(img_dir, data_file, test_vid_file, clip_frame_num=32, fps=
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description='video chapter model')
-    parser.add_argument('--clip_frame_num', default=32, type=int) # 12 -> 32 수정
+    parser.add_argument('--clip_frame_num', default=20, type=int) # 수정
     args = parser.parse_args()
 
-    img_dir = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/youtube_video_frame_dataset_fps4" # fps4 경로로 변경
+    img_dir = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/youtube_video_frame_dataset" # 
     data_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/all_in_one_with_subtitle_final.csv"
     # test_vid_file = "/opt/tiger/video_chapter_youtube_dataset/dataset/test.txt"
     # test_vid_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/final_test.txt"
@@ -144,14 +144,15 @@ if __name__ == "__main__":
 
 
     clip_frame_num = args.clip_frame_num
-    all_clip_infos = flat_videos2clips(img_dir, data_file, test_vid_file, clip_frame_num, fps=4)
+    all_clip_infos = flat_videos2clips(img_dir, data_file, test_vid_file, clip_frame_num, fps=1)
 
     # save all test clips
     # save_json_file = f"/opt/tiger/video_chapter_youtube_dataset/dataset/test_clips_clip_frame_num_{clip_frame_num}.json"
     #save_json_file = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/validation_clips_clip_frame_num_{clip_frame_num}.json"
     
     # save 저장 위치 수정
-    save_json_file = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset_fps4/validation_clips_clip_frame_num_{clip_frame_num}.json"
+    save_json_file = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset_fps1/validation_clips_clip_frame_num_{clip_frame_num}.json"
+    #save_json_file = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset_fps1/test_clips_clip_frame_num_{clip_frame_num}.json"
     os.makedirs(os.path.dirname(save_json_file), exist_ok=True)
 
     # save_json_file = f"/opt/tiger/video_chapter_youtube_dataset/dataset/all_clips_clip_frame_num_{clip_frame_num}.json"

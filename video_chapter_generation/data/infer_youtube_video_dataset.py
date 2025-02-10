@@ -428,7 +428,7 @@ class InferYoutubeAllClipDataset:
 
 class InferWindowClipDataset:
     def __init__(self, img_dir, json_paths, tokenizer, clip_frame_num, max_text_len, window_size=2, mode="all", transform=None):
-        self.fps = 4 # add fps value
+        self.fps = 1 # add fps value
         self.max_offset = 2 * self.fps # apply fps
         self.tokenizer = tokenizer
         self.clip_frame_num = clip_frame_num
