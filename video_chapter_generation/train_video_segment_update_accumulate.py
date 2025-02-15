@@ -6,6 +6,8 @@ import math
 import os
 import time
 import logging
+import glob
+import re
 
 from tqdm import tqdm
 import numpy as np
@@ -80,14 +82,14 @@ class Trainer:
             # self.model = torch.nn.DataParallel(self.model).to(self.device)
 
     def save_checkpoint(self, epoch, best_result):
-        # DataParallel wrappers keep raw model object in .module attribute
         raw_model = self.model.module if hasattr(self.model, "module") else self.model
         checkpoint_dir = os.path.dirname(self.config.ckpt_path)
         os.makedirs(checkpoint_dir, exist_ok=True)
-        
-        # Create new checkpoint filename with epoch number
-        base_path = os.path.splitext(self.config.ckpt_path)[0]  # Remove .pth extension
-        ckpt_path = f"{base_path}_{epoch}_score_{best_result:.4f}.pth"
+
+        if is_best:
+            ckpt_path = f"{base_path}_{epoch}_score_{best_result:.4f}.pth"
+        else:
+            ckpt_path = f"{base_path}_{epoch}.pth"
         logger.info(f"Saving checkpoint at epoch {epoch} to {ckpt_path}")
 
         checkpoint = {
@@ -100,31 +102,76 @@ class Trainer:
         torch.save(checkpoint, ckpt_path)
         return ckpt_path
 
+    def find_latest_checkpoint(self):
+        if not os.path.exists(self.config.ckpt_path):
+            return None, 0
+            
+        checkpoints = glob.glob(os.path.join(self.config.ckpt_path, "*.pth"))
+        if not checkpoints:
+            return None, 0
+
+        latest_epoch = -1
+        latest_checkpoint = None
+        
+        for checkpoint in checkpoints:
+            filename = os.path.basename(checkpoint)
+            match = re.search(r'_(\d+)(?:_score_[\d.]+)?\.pth$', filename)
+            if match:
+                epoch = int(match.group(1))
+                if epoch > latest_epoch:
+                    latest_epoch = epoch
+                    latest_checkpoint = checkpoint
+        
+        return latest_checkpoint, latest_epoch
+
     def train(self):
+
+        latest_checkpoint, start_epoch = self.find_latest_checkpoint()
+    
+        if latest_checkpoint:
+            checkpoint = torch.load(latest_checkpoint)
+            state_dict = checkpoint["model_state_dict"]
+
+            new_state_dict = {}
+            for k, v in state_dict.items():
+                if not k.startswith('module.'):
+                    k = 'module.' + k 
+                new_state_dict[k] = v
+                
+            self.config.start_epoch = checkpoint["epoch"]
+            self.config.best_result = checkpoint["best_result"]
+            self.model.load_state_dict(new_state_dict)
+            logger.info(f"Resuming from epoch {self.config.start_epoch} with best result {self.config.best_result}")
+        else:
+            self.config.start_epoch = 0
+            self.config.best_result = float('-inf')
+            logger.info("No checkpoint found, starting from scratch")
+
         raw_model = self.model.module if hasattr(self.model, "module") else self.model
         self.optimizer = raw_model.configure_optimizers(self.config)
+        if latest_checkpoint:
+            self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
 
         best_result = self.config.best_result
         test_result = float('-inf')
-        self.tokens = 0 # counter used for learning rate decay
+        self.tokens = 0
 
         for epoch in range(self.config.start_epoch+1, self.config.max_epochs+1):
             self.run_epoch('train', epoch, self.train_dataset)
 
-            if self.test_dataset is not None and (epoch % 30 == 0 or epoch==1):
+            if self.test_dataset is not None and (epoch % 30 == 0):
                 infer_test_result = self.run_epoch("infer_test", epoch, self.test_dataset)
                 test_result = infer_test_result
 
-            if test_result > best_result:
-                        best_result = test_result
-                        if self.config.ckpt_path is not None:
-                            checkpoint_path = self.save_checkpoint(epoch, best_result)
-                            logger.info(f"Saved best model checkpoint to {checkpoint_path}")
-            # supports early stopping based on the test acc, or just save always if no test set is provided
-            # good_model = self.test_dataset is None or test_result > best_result
-            # if self.config.ckpt_path is not None and good_model:
-            #     best_result = test_result
-            #     self.save_checkpoint(epoch, best_result)
+                if test_result > best_result:
+                            best_result = test_result
+                            if self.config.ckpt_path is not None:
+                                checkpoint_path = self.save_checkpoint(epoch, best_result, is_best=True)
+                                logger.info(f"Saved best model checkpoint to {checkpoint_path}")
+
+            elif epoch % 10 == 0 and self.config.ckpt_path is not None:
+                checkpoint_path = self.save_checkpoint(epoch, best_result, is_best=False)
+                logger.info(f"Saved regular checkpoint to {checkpoint_path}")
 
 
     def run_epoch(self, split, epoch, dataset):
@@ -300,7 +347,7 @@ if __name__ == "__main__":
     parser.add_argument('--gpu', default=0, type=int)
     parser.add_argument('--data_mode', default="all", type=str, help="text (text only), image (image only) or all (multiple-model)")
     parser.add_argument('--model_type', default="two_stream", type=str, help="bert, r50tsm, two_stream")
-    parser.add_argument('--clip_frame_num', default=8, type=int)
+    parser.add_argument('--clip_frame_num', default=16, type=int)
     parser.add_argument('--epoch', default=270, type=int)
     parser.add_argument('--batch_size', default=4, type=int)
     parser.add_argument('--lr_decay_type', default="cosine", type=str)
@@ -320,10 +367,10 @@ if __name__ == "__main__":
     vision_pretrain_ckpt_path = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/r50tsm/batch_{batch_size}_lr_decay_cosine_train_test_split/pretrain.pth"
     lang_pretrain_ckpt_path = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/hugface_bert_pretrain/batch_{batch_size}_lr_decay_cosine_train_test_split/pretrain.pth"
     # ckpt_path = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/{args.data_mode}/{args.model_type}_validation/batch_{batch_size}_head_type_{args.head_type}_clip_frame_num_{args.clip_frame_num}/checkpoint.pth"
-    ckpt_path = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/chapter_localization/MVCG_cross_window_attn_8_accumulation_2e-6_fullval_frame8/checkpoint.pth"
+    ckpt_path = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/chapter_localization/MVCG_lr_2e-6_fullval/cross_16_window_attn_8"
     img_dir = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/youtube_video_frame_dataset"
     data_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/all_in_one_with_subtitle_final.csv"
-    test_clips_json = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset_fps1_frame8/validation_clips_clip_frame_num_8.json"
+    test_clips_json = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset_fps1/validation_clips_clip_frame_num_16.json"
 
     train_vid_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/final_train.txt"
     test_vid_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/final_validation.txt"
