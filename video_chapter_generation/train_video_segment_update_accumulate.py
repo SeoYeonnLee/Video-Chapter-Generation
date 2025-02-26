@@ -347,7 +347,7 @@ if __name__ == "__main__":
     parser.add_argument('--gpu', default=0, type=int)
     parser.add_argument('--data_mode', default="all", type=str, help="text (text only), image (image only) or all (multiple-model)")
     parser.add_argument('--model_type', default="two_stream", type=str, help="bert, r50tsm, two_stream")
-    parser.add_argument('--clip_frame_num', default=16, type=int)
+    parser.add_argument('--clip_frame_num', default=12, type=int)
     parser.add_argument('--epoch', default=270, type=int)
     parser.add_argument('--batch_size', default=4, type=int)
     parser.add_argument('--lr_decay_type', default="cosine", type=str)
@@ -364,16 +364,18 @@ if __name__ == "__main__":
     start_epoch = 0
     best_result = float('-inf')
 
-    vision_pretrain_ckpt_path = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/r50tsm/batch_{batch_size}_lr_decay_cosine_train_test_split/pretrain.pth"
-    lang_pretrain_ckpt_path = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/hugface_bert_pretrain/batch_{batch_size}_lr_decay_cosine_train_test_split/pretrain.pth"
+    vision_pretrain_ckpt_path = f"./checkpoint/r50tsm/batch_{batch_size}_lr_decay_cosine_train_test_split/pretrain.pth"
+    # lang_pretrain_ckpt_path = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/hugface_bert_pretrain/batch_{batch_size}_lr_decay_cosine_train_test_split/pretrain.pth"
+    lang_pretrain_ckpt_path = f"./checkpoint/hugface_bert/pretrain_2880.pth"
     # ckpt_path = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/{args.data_mode}/{args.model_type}_validation/batch_{batch_size}_head_type_{args.head_type}_clip_frame_num_{args.clip_frame_num}/checkpoint.pth"
-    ckpt_path = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/chapter_localization/MVCG_lr_2e-6_fullval/cross_16_window_attn_8"
-    img_dir = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/youtube_video_frame_dataset"
-    data_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/all_in_one_with_subtitle_final.csv"
-    test_clips_json = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset_fps1/validation_clips_clip_frame_num_16.json"
+    ckpt_path = f"./checkpoint/chapter_localization/MVCG_lr_2e-6_fullval/test/"
+    img_dir = "./dataset/youtube_video_frame_dataset"
+    data_file = "./dataset/all_in_one_with_subtitle_final.csv"
+    subtitle_dir = "../video_chapter_youtube_dataset/dataset"
+    test_clips_json = f"./dataset/dataset_fps1/validation_clips_clip_frame_num_12.json"
 
-    train_vid_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/final_train.txt"
-    test_vid_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/final_validation.txt"
+    train_vid_file = "./dataset/final_train.txt"
+    test_vid_file = "./dataset/final_validation.txt"
     tensorboard_log = os.path.dirname(ckpt_path)
     tensorboard_writer = SummaryWriter(tensorboard_log)
 
@@ -383,7 +385,9 @@ if __name__ == "__main__":
         tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
         lang_model = bert_hugface.BertHugface(pretrain_stage=False)
         if os.path.exists(lang_pretrain_ckpt_path):
-            lang_model.load_state_dict(torch.load(lang_pretrain_ckpt_path))
+            # lang_model.load_state_dict(torch.load(lang_pretrain_ckpt_path))        
+            checkpoint = torch.load(lang_pretrain_ckpt_path)
+            lang_model.load_state_dict(checkpoint["model_state_dict"])
 
         # vision model
         if args.data_mode == "image":
@@ -457,7 +461,7 @@ if __name__ == "__main__":
         
         # train_dataset = YoutubeClipDataset(img_dir, data_file, train_vid_file, tokenizer, clip_frame_num, max_text_len, mode=args.data_mode, transform=train_vision_preprocess)
         # test_dataset = InferYoutubeClipDataset(img_dir, test_clips_json, tokenizer, clip_frame_num, max_text_len, mode=args.data_mode, transform=test_vision_preprocess)
-        train_dataset = WindowClipDataset(img_dir, data_file, train_vid_file, tokenizer, clip_frame_num, max_text_len, window_size=args.window_size, mode=args.data_mode, transform=train_vision_preprocess)
+        train_dataset = WindowClipDataset(img_dir, data_file, train_vid_file, tokenizer, clip_frame_num, max_text_len, window_size=args.window_size, mode=args.data_mode, transform=train_vision_preprocess, subtitle_dir=subtitle_dir)
         test_dataset = InferWindowClipDataset(img_dir, test_clips_json, tokenizer, clip_frame_num, max_text_len, window_size=args.window_size, mode=args.data_mode, transform=test_vision_preprocess)
 
         # initialize a trainer instance and kick off training

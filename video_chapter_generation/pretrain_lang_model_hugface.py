@@ -11,6 +11,7 @@ from tqdm import tqdm
 import numpy as np
 
 import torch
+from torch.nn import functional as F
 import torch.optim as optim
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader
@@ -63,13 +64,26 @@ class Trainer:
             # self.model = self.model.to(self.device)
             # self.model = torch.nn.DataParallel(self.model).to(self.device)
 
-    def save_checkpoint(self):
+    def save_checkpoint(self, epoch, best_loss):
         # DataParallel wrappers keep raw model object in .module attribute
         raw_model = self.model.module if hasattr(self.model, "module") else self.model
-        os.makedirs(os.path.dirname(self.config.ckpt_path), exist_ok=True)
-        # logger.info("saving %s", self.config.ckpt_path)
-        print("saving %s" % self.config.ckpt_path)
-        torch.save(raw_model.state_dict(), self.config.ckpt_path)
+
+        checkpoint_dir = self.config.ckpt_path
+        os.makedirs(checkpoint_dir, exist_ok=True)
+
+        epoch_ckpt_path = os.path.join(checkpoint_dir, f"pretrain_{epoch}.pth")
+
+        checkpoint = {
+            "epoch": epoch,
+            "best_loss": best_loss,
+            "model_state_dict": raw_model.state_dict(),
+            "optimizer_state_dict": self.optimizer.state_dict(),
+            "tokens": self.tokens
+            
+        }
+
+        print(f"Saving checkpoint at epoch {epoch} with loss {best_loss:.5f} to {epoch_ckpt_path}")
+        torch.save(checkpoint, epoch_ckpt_path)
 
     def train(self):
         raw_model = self.model.module if hasattr(self.model, "module") else self.model
@@ -87,7 +101,7 @@ class Trainer:
             good_model = self.test_dataset is None or test_loss < best_loss
             if self.config.ckpt_path is not None and good_model:
                 best_loss = test_loss
-                self.save_checkpoint()
+                self.save_checkpoint(epoch, best_loss)
     
 
     def run_epoch(self, split, epoch):
@@ -106,15 +120,18 @@ class Trainer:
 
             # forward the model
             with torch.set_grad_enabled(is_train):
-                output = self.model(x, attention_mask, y)
-                loss = output["loss"]
-                logits = output["logits"]
-                losses.append(loss.item())
+                # output = self.model(x, attention_mask, y)
+                # loss = output["loss"]
+                # logits = output["logits"]
+                # losses.append(loss.item())
+                logits, prob = self.model(x, attention_mask)
 
                 # acc
                 mask = torch.nonzero(y != -1)
                 valid_logits = logits[mask[:, 0], mask[:, 1], :]
                 valid_y = y[mask[:, 0], mask[:, 1]]
+                loss = F.cross_entropy(valid_logits.view(-1, valid_logits.size(-1)), valid_y.view(-1))
+                losses.append(loss.item())
 
                 cpu_y = valid_y.cpu().numpy()
                 topk_scores, topk_labels = valid_logits.data.topk(1, 1, True, True)
@@ -187,19 +204,23 @@ class Trainer:
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description='pretrain language model')
-    parser.add_argument('--gpu', default=6, type=int)
-    parser.add_argument('--model_type', default="gpt", type=str)
-    parser.add_argument('--epoch', default=3000, type=int)
+    parser.add_argument('--gpu', default=0, type=int)
+    parser.add_argument('--model_type', default="bert", type=str)
+    parser.add_argument('--epoch', default=3001, type=int)
     parser.add_argument('--batch_size', default=64, type=int)
     parser.add_argument('--lr_decay_type', default="cosine", type=str)
     args = parser.parse_args()
     # args.model_type = "bert"
 
 
-    ckpt_path = f"/opt/tiger/video_chapter_generation/checkpoint/hugface_{args.model_type}_pretrain/batch_{args.batch_size}_lr_decay_{args.lr_decay_type}_train_test_split/pretrain.pth"
-    data_file = "/opt/tiger/video_chapter_youtube_dataset/dataset/all_in_one_with_subtitle.csv"
-    train_vid_file = "/opt/tiger/video_chapter_youtube_dataset/dataset/train.txt"
-    test_vid_file = "/opt/tiger/video_chapter_youtube_dataset/dataset/test.txt"
+    # ckpt_path = f"/opt/tiger/video_chapter_generation/checkpoint/hugface_{args.model_type}_pretrain/batch_{args.batch_size}_lr_decay_{args.lr_decay_type}_train_test_split/pretrain.pth"
+    # data_file = "/opt/tiger/video_chapter_youtube_dataset/dataset/all_in_one_with_subtitle.csv"
+    ckpt_path = f"./checkpoint/hugface_{args.model_type}/"
+    data_file = "./dataset/all_in_one_with_subtitle_final.csv"
+    subtitle_dir = "../video_chapter_youtube_dataset/dataset"
+    
+    train_vid_file = "./dataset/final_train.txt"
+    test_vid_file = "./dataset/final_validation.txt"
     tensorboard_log = os.path.dirname(ckpt_path)
     tensorboard_writer = SummaryWriter(tensorboard_log)
 
@@ -218,8 +239,8 @@ if __name__ == "__main__":
         raise RuntimeError(f"Unknown model type {args.model_type}")
 
     # dataset
-    train_dataset = YoutubeClipSubtitleDatasetForHugFace(data_file, train_vid_file, args.model_type, tokenizer, clip_frame_num=8, max_text_len=max_text_len)
-    test_dataset = YoutubeClipSubtitleDatasetForHugFace(data_file, test_vid_file, args.model_type, tokenizer, clip_frame_num=8, max_text_len=max_text_len)
+    train_dataset = YoutubeClipSubtitleDatasetForHugFace(data_file, train_vid_file, args.model_type, tokenizer, clip_frame_num=16, max_text_len=max_text_len, subtitle_dir=subtitle_dir)
+    test_dataset = YoutubeClipSubtitleDatasetForHugFace(data_file, test_vid_file, args.model_type, tokenizer, clip_frame_num=16, max_text_len=max_text_len, subtitle_dir=subtitle_dir)
     
     # initialize a trainer instance and kick off training
     tconf = TrainerConfig(model_type=args.model_type, max_epochs=args.epoch, batch_size=batch_size, learning_rate=1e-4, block_size=max_text_len,

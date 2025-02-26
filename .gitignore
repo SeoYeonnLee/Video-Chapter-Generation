@@ -14,12 +14,14 @@
 *.json
 *.csv
 *.zip
+*.z[0-9][0-9]
 *.tar
 *.pickle
 video_chapter_generation/checkpoint/
 video_chapter_generation/all_tensorboards
 video_chapter_generation/youtube_video_vision_emb_clip_frame_num_16/
 video_chapter_generation/test_results/
+video_chapter_generation/dataset/
 video_chapter_youtube_dataset/dataset/
 video_chapter_youtube_dataset/dataset_fps1/
 video_chapter_youtube_dataset/dataset_fps4/

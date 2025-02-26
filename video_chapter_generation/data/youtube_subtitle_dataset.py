@@ -246,7 +246,7 @@ class YoutubeClipSubtitleDataset:
 youtube subtitle dataset for MLM-bert generative-gpt pretraining
 """
 class YoutubeClipSubtitleDatasetForHugFace:
-    def __init__(self, data_file, vid_file, model_type, tokenizer, clip_frame_num, max_text_len, transform=None, target_transform=None):
+    def __init__(self, data_file, vid_file, model_type, tokenizer, clip_frame_num, max_text_len, subtitle_dir=None, transform=None, target_transform=None):
         """
         Sample text for SSL training language model
         Note that the video frame is sampled by 1 frame/second
@@ -273,7 +273,10 @@ class YoutubeClipSubtitleDatasetForHugFace:
         self.vids = vids
 
         # asr files
-        asr_file_list = glob.glob(os.path.dirname(data_file) + "/*/subtitle_*.json")
+        # asr_file_list = glob.glob(os.path.dirname(data_file) + "/*/subtitle_*.json")
+        subtitle_path = os.path.dirname(data_file) if subtitle_dir is None else subtitle_dir
+        asr_file_list = glob.glob(subtitle_path + "/*/subtitle_*.json")
+
         self.vid2asr_files = dict()
         for asr_file in asr_file_list:
             filename = os.path.basename(asr_file)

@@ -96,6 +96,10 @@ class BertHugface(nn.Module):
         return optimizer
 
     def forward(self, text_ids, attention_mask, get_attention=False):
+        
+        if isinstance(get_attention, torch.Tensor):
+            get_attention = get_attention.item() if get_attention.numel() == 1 else False
+
         inputs = {
             "input_ids": text_ids,
             "attention_mask": attention_mask
@@ -124,7 +128,7 @@ class BertHugface(nn.Module):
 
         if get_attention:
             bert_attention = base_output.attentions
-            
+
         return logits, prob
 
 

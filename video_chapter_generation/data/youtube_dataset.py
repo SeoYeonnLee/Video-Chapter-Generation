@@ -354,7 +354,7 @@ class YoutubeAllClipDataset:
         return len(self.vids)
 
 class WindowClipDataset:
-    def __init__(self, img_dir, data_file, vid_file, tokenizer, clip_frame_num, max_text_len, window_size=2, mode="all", transform=None):
+    def __init__(self, img_dir, data_file, vid_file, tokenizer, clip_frame_num, max_text_len, window_size=2, mode="all", transform=None, subtitle_dir=None):
         self.tokenizer = tokenizer
         self.clip_frame_num = clip_frame_num
         self.max_text_len = max_text_len
@@ -375,7 +375,10 @@ class WindowClipDataset:
             self.vids = [x.strip() for x in f.readlines()]
 
         # Load ASR files
-        asr_file_list = glob.glob(os.path.dirname(data_file) + "/*/subtitle_*.json")
+        # asr_file_list = glob.glob(os.path.dirname(data_file) + "/*/subtitle_*.json")
+        subtitle_path = os.path.dirname(data_file) if subtitle_dir is None else subtitle_dir
+        asr_file_list = glob.glob(subtitle_path + "/*/subtitle_*.json")
+
         self.vid2asr_files = {}
         for asr_file in asr_file_list:
             filename = os.path.basename(asr_file)

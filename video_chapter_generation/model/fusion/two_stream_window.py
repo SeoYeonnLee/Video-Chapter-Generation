@@ -236,7 +236,7 @@ class ChapterHead(nn.Module):
             self.head = SelfAttention(hidden_size, 4, hidden_size)
         elif self.head_type == "cross_attn":
             print(f'head type: cross attention')
-            self.head = CrossAttention(hidden_size, num_heads=16)
+            self.head = CrossAttention(hidden_size, num_heads=4)
             self.output_proj = nn.Linear(hidden_size, output_size)
 
         else:
