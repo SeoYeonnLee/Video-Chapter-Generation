@@ -55,6 +55,7 @@ class TrainerConfig:
 
     # tensorboard writer
     tensorboard_writer = None
+    gradient_accumulation_steps = 4
 
     def __init__(self, **kwargs):
         for k,v in kwargs.items():
@@ -76,12 +77,23 @@ class Trainer:
             # self.model = self.model.to(self.device)
             # self.model = torch.nn.DataParallel(self.model).to(self.device)
 
-    def save_checkpoint(self, epoch, best_result):
-        # DataParallel wrappers keep raw model object in .module attribute
+    def save_checkpoint(self, epoch, best_result, is_best=True):
         raw_model = self.model.module if hasattr(self.model, "module") else self.model
-        os.makedirs(os.path.dirname(self.config.ckpt_path), exist_ok=True)
-        print("saving %s" % self.config.ckpt_path)
-        torch.save({"epoch": epoch, "best_result": best_result, "model_state_dict": raw_model.state_dict()}, self.config.ckpt_path)
+        checkpoint_dir = os.path.dirname(self.config.ckpt_path)
+        os.makedirs(checkpoint_dir, exist_ok=True)
+
+        if is_best:
+            ckpt_path = f"{base_path}_{epoch}_score_{best_result:.4f}.pth"
+        else:
+            ckpt_path = f"{base_path}_{epoch}.pth"
+        logger.info(f"Saving checkpoint at epoch {epoch} to {ckpt_path}")
+
+        checkpoint = {
+                "epoch": epoch,
+                "best_result": best_result,
+                "model_state_dict": raw_model.state_dict(),
+                "optimizer_state_dict": self.optimizer.state_dict()
+            }
 
     def train(self):
         raw_model = self.model.module if hasattr(self.model, "module") else self.model
@@ -90,18 +102,25 @@ class Trainer:
         best_result = self.config.best_result
         test_result = float('-inf')
         self.tokens = 0 # counter used for learning rate decay
-        for epoch in range(self.config.start_epoch, self.config.max_epochs):
+        
+        for epoch in range(self.config.start_epoch+1, self.config.max_epochs+1):
             self.run_epoch('train', epoch, self.train_dataset)
 
-            if self.test_dataset is not None and epoch % 30 == 0:
+            if self.test_dataset is not None and (epoch % 2 == 0 or epoch == 15 or epoch == 45):
                 infer_test_result = self.run_epoch("infer_test", epoch, self.test_dataset)
                 test_result = infer_test_result
 
+                if test_result > best_result:
+                    best_result = test_result
+                    if self.config.ckpt_path is not None:
+                        checkpoint_path = self.save_checkpoint(epoch, best_result, is_best=True)
+                        logger.info(f"Saved best model checkpoint to {checkpoint_path}")
+
             # supports early stopping based on the test acc, or just save always if no test set is provided
-            good_model = self.test_dataset is None or test_result > best_result
-            if self.config.ckpt_path is not None and good_model:
-                best_result = test_result
-                self.save_checkpoint(epoch, best_result)
+            # good_model = self.test_dataset is None or test_result > best_result
+            # if self.config.ckpt_path is not None and good_model:
+            #     best_result = test_result
+            #     self.save_checkpoint(epoch, best_result)
 
 
     def run_epoch(self, split, epoch, dataset):
@@ -110,28 +129,18 @@ class Trainer:
 
         if is_train:
             shuffle = True
+            used_batch_size = self.config.batch_size
         else:
             shuffle = False
+            used_batch_size = self.config.batch_size * 8
 
         losses = []
         
-        loader = DataLoader(dataset, shuffle=shuffle, pin_memory=True, batch_size=self.config.batch_size, num_workers=self.config.num_workers)
+        loader = DataLoader(dataset, shuffle=shuffle, pin_memory=True, batch_size=used_batch_size, num_workers=self.config.num_workers)
         # pbar = tqdm(enumerate(loader), total=len(loader)) if is_train else enumerate(loader)
         pbar = tqdm(enumerate(loader), total=len(loader))
 
         for it, (img_clip, text_ids, attention_mask, label) in pbar:
-            print(f'img_clip: {img_clip.shape}')
-            print(f'text_ids: {text_ids.shape}')
-            print(f'attention_mask: {attention_mask.shape}')
-            print(f'label: {label}')
-
-        # for it, (img_clips, text_ids, attention_masks, label, target_idx) in pbar:
-            
-        #     print(f'img_clips: {img_clips.shape}')
-        #     print(f'text_ids: {text_ids.shape}')
-        #     print(f'attention_masks: {attention_masks.shape}')
-        #     print(f'label: {label}')
-        #     print(f'target_idx: {target_idx}')
 
             img_clip = img_clip.float().to(self.device)
             text_ids = text_ids.to(self.device)
@@ -169,7 +178,7 @@ class Trainer:
                     m_ap = 0
 
             if not is_train:
-                start_idx = it * self.config.batch_size
+                start_idx = it * used_batch_size
                 end_idx = start_idx + img_clip.shape[0]
 
                 for i in range(start_idx, end_idx):
@@ -180,53 +189,59 @@ class Trainer:
                 
             if is_train:
                 # backprop and update the parameters
-                self.model.zero_grad()
+                # self.model.zero_grad()
+                loss = loss / self.config.gradient_accumulation_steps
                 loss.backward()
-                torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config.grad_norm_clip)
-                self.optimizer.step()
+                # torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config.grad_norm_clip)
+                # self.optimizer.step()
 
                 # decay the learning rate based on our progress
-                if self.config.lr_decay:
-                    # self.tokens += (attention_mask > 0).sum()
-                    if epoch < self.config.warmup_epochs:
-                        # linear warmup
-                        lr_mult = max(epoch / self.config.warmup_epochs, 1e-2)
-                    else:
-                        if epoch < self.config.final_epochs:
-                            progress = epoch / self.config.final_epochs
-                        else:
-                            progress = 1.0
-                        # cosine learning rate decay
-                        if self.config.lr_decay_type == "cosine":
-                            lr_mult = max(0.001, 0.5 * (1.0 + math.cos(math.pi * progress)))
+                if (it + 1) % self.config.gradient_accumulation_steps == 0:
+                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config.grad_norm_clip)
+                    self.optimizer.step()
+                    self.model.zero_grad()
 
-                        # exponential learning rate decay
-                        elif self.config.lr_decay_type == "exp":
-                            decay_progress_threshold = 1/5
-                            if progress < decay_progress_threshold:
-                                lr_mult = 1
-                            elif decay_progress_threshold < progress < decay_progress_threshold * 2:
-                                lr_mult = 0.1
-                            elif decay_progress_threshold * 2 < progress < decay_progress_threshold * 3:
-                                lr_mult = 0.01
+                    if self.config.lr_decay:
+                        # self.tokens += (attention_mask > 0).sum()
+                        if epoch < self.config.warmup_epochs:
+                            # linear warmup
+                            lr_mult = max(epoch / self.config.warmup_epochs, 1e-2)
+                        else:
+                            if epoch < self.config.final_epochs:
+                                progress = epoch / self.config.final_epochs
                             else:
-                                lr_mult = 0.001
-                        else:
-                            raise RuntimeError("Unknown learning rate decay type")
+                                progress = 1.0
+                            # cosine learning rate decay
+                            if self.config.lr_decay_type == "cosine":
+                                lr_mult = max(0.001, 0.5 * (1.0 + math.cos(math.pi * progress)))
 
-                    lr = self.config.learning_rate * lr_mult
-                    for param_group in self.optimizer.param_groups:
-                        param_group['lr'] = lr
-                else:
-                    lr = self.config.learning_rate
+                            # exponential learning rate decay
+                            elif self.config.lr_decay_type == "exp":
+                                decay_progress_threshold = 1/5
+                                if progress < decay_progress_threshold:
+                                    lr_mult = 1
+                                elif decay_progress_threshold < progress < decay_progress_threshold * 2:
+                                    lr_mult = 0.1
+                                elif decay_progress_threshold * 2 < progress < decay_progress_threshold * 3:
+                                    lr_mult = 0.01
+                                else:
+                                    lr_mult = 0.001
+                            else:
+                                raise RuntimeError("Unknown learning rate decay type")
 
-                # report progress
-                n_iter = epoch * len(loader) + it
-                self.config.tensorboard_writer.add_scalar('Train/loss', loss.item(), n_iter)
-                if auc:
-                    self.config.tensorboard_writer.add_scalar('Train/auc', auc, n_iter)
-                    self.config.tensorboard_writer.add_scalar('Train/m_ap', m_ap, n_iter)
-                pbar.set_description(f"epoch {epoch+1} iter {it}: train loss {loss.item():.5f}, auc {auc:.5f}, m_ap {m_ap: .5f}, lr {lr:e}")
+                        lr = self.config.learning_rate * lr_mult
+                        for param_group in self.optimizer.param_groups:
+                            param_group['lr'] = lr
+                    else:
+                        lr = self.config.learning_rate
+
+                    # report progress
+                    n_iter = epoch * len(loader) + it
+                    self.config.tensorboard_writer.add_scalar('Train/loss', loss.item(), n_iter)
+                    if auc:
+                        self.config.tensorboard_writer.add_scalar('Train/auc', auc, n_iter)
+                        self.config.tensorboard_writer.add_scalar('Train/m_ap', m_ap, n_iter)
+                    pbar.set_description(f"epoch {epoch} iter {it}: train loss {loss.item():.5f}, auc {auc:.5f}, m_ap {m_ap: .5f}, lr {lr:e}")
 
         if not is_train:
             test_aucs = []
@@ -263,7 +278,6 @@ class Trainer:
             return test_m_ap
 
 
-
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description='video chapter model')
@@ -271,30 +285,33 @@ if __name__ == "__main__":
     parser.add_argument('--data_mode', default="all", type=str, help="text (text only), image (image only) or all (multiple-model)")
     parser.add_argument('--model_type', default="two_stream", type=str, help="bert, r50tsm, two_stream")
     parser.add_argument('--clip_frame_num', default=16, type=int)
-    parser.add_argument('--epoch', default=280, type=int)
-    parser.add_argument('--batch_size', default=32, type=int)
+    parser.add_argument('--epoch', default=300, type=int)
+    parser.add_argument('--batch_size', default=4, type=int)
     parser.add_argument('--lr_decay_type', default="cosine", type=str)
     parser.add_argument('--head_type', default="mlp", type=str, help="mlp or attn, only work on two_stream model")
     args = parser.parse_args()
 
     set_random_seed.use_fix_random_seed()
     batch_size = args.batch_size
+    gradient_accumulation_steps=4
     clip_frame_num = args.clip_frame_num
-    num_workers = 1
+    num_workers = 8
     max_text_len = 100
     start_epoch = 0
     best_result = float('-inf')
 
-    vision_pretrain_ckpt_path = f"/home/work/VCG/Video-Chapter-Generation/video_chapter_generation/checkpoint/r50tsm/batch_{batch_size}_lr_decay_cosine_train_test_split/pretrain.pth"
-    lang_pretrain_ckpt_path = f"/home/work/VCG/Video-Chapter-Generation/video_chapter_generation/checkpoint/hugface_bert_pretrain/batch_{batch_size}_lr_decay_cosine_train_test_split/pretrain.pth"
+    vision_pretrain_ckpt_path = f"./checkpoint/r50tsm/batch_{batch_size}_lr_decay_cosine_train_test_split/pretrain.pth"
+    lang_pretrain_ckpt_path = f"./checkpoint/hugface_bert/pretrain_2880.pth"
     # ckpt_path = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/{args.data_mode}/{args.model_type}_validation/batch_{batch_size}_head_type_{args.head_type}_clip_frame_num_{args.clip_frame_num}/checkpoint.pth"
-    ckpt_path = f"/home/work/VCG/Video-Chapter-Generation/video_chapter_generation/checkpoint/chapter_localizatoin/test/checkpoint.pth"
-    img_dir = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/youtube_video_frame_dataset"
-    data_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/all_in_one_with_subtitle_final.csv"
-    test_clips_json = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/debugging_val_clips_clip_frame_num_{clip_frame_num}.json"
+    ckpt_path = f"./checkpoint/chapter_localization/MVCG/test/"
+    img_dir = "../video_chapter_youtube_dataset/youtube_video_frame_dataset"
+    data_file = "./dataset/all_in_one_with_subtitle_final.csv"
+    subtitle_dir = "../video_chapter_youtube_dataset/dataset"
+    test_clips_json = f"./dataset/dataset_fps1/validation_clips_clip_frame_num_{clip_frame_num}.json"
 
-    train_vid_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/debugging_train.txt"
-    test_vid_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/debugging_validation.txt"
+
+    train_vid_file = "./dataset/final_train.txt"
+    test_vid_file = "./dataset/final_validation.txt"
     tensorboard_log = os.path.dirname(ckpt_path)
     tensorboard_writer = SummaryWriter(tensorboard_log)
 
@@ -303,7 +320,10 @@ if __name__ == "__main__":
     tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
     lang_model = bert_hugface.BertHugface(pretrain_stage=False)
     if os.path.exists(lang_pretrain_ckpt_path):
-        lang_model.load_state_dict(torch.load(lang_pretrain_ckpt_path))
+        # lang_model.load_state_dict(torch.load(lang_pretrain_ckpt_path))
+        checkpoint = torch.load(lang_pretrain_ckpt_path)
+        lang_model.load_state_dict(checkpoint["model_state_dict"])
+        print('Load BERT pretrained model')
 
     # vision model
     if args.data_mode == "image":
@@ -329,7 +349,7 @@ if __name__ == "__main__":
         model = vision_model
         model.build_chapter_head()
         model = model.to(args.gpu)
-        model = torch.nn.DataParallel(model, device_ids=[0,1])
+        # model = torch.nn.DataParallel(model, device_ids=[0,1])
     elif args.data_mode == "all":
         lang_base_model = lang_model.base_model
         vision_base_model = vision_model.base_model
@@ -337,7 +357,7 @@ if __name__ == "__main__":
         model = two_stream.TwoStream(lang_base_model, vision_base_model, lang_model.embed_size, vision_model.feature_dim, clip_frame_num, hidden_size)
         model.build_chapter_head(output_size=2, head_type=args.head_type)
         model = model.to(args.gpu)
-        model = torch.nn.DataParallel(model, device_ids=[0,1])
+        # model = torch.nn.DataParallel(model, device_ids=[0,1])
     else:
         raise RuntimeError(f"Unknown data mode {args.data_mode}")
     
@@ -361,14 +381,14 @@ if __name__ == "__main__":
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
     
-    train_dataset = YoutubeClipDataset(img_dir, data_file, train_vid_file, tokenizer, clip_frame_num, max_text_len, mode=args.data_mode, transform=train_vision_preprocess)
+    train_dataset = YoutubeClipDataset(img_dir, data_file, train_vid_file, tokenizer, clip_frame_num, max_text_len, mode=args.data_mode, transform=train_vision_preprocess, subtitle_dir=subtitle_dir)
     test_dataset = InferYoutubeClipDataset(img_dir, test_clips_json, tokenizer, clip_frame_num, max_text_len, mode=args.data_mode, transform=test_vision_preprocess)
     # train_dataset = YoutubeAllClipDataset(img_dir, data_file, train_vid_file, tokenizer, clip_frame_num, max_text_len, mode=args.data_mode, transform=train_vision_preprocess)
     # test_dataset = InferYoutubeAllClipDataset(img_dir, test_clips_json, tokenizer, clip_frame_num, max_text_len, mode=args.data_mode, transform=test_vision_preprocess)
 
     # initialize a trainer instance and kick off training
     tconf = TrainerConfig(data_mode=args.data_mode, max_epochs=args.epoch,
-                        start_epoch=start_epoch, best_result=best_result, batch_size=batch_size, learning_rate=1e-5, block_size=max_text_len,
+                        start_epoch=start_epoch, best_result=best_result, batch_size=batch_size, gradient_accumulation_steps=gradient_accumulation_steps, learning_rate=1e-5, block_size=max_text_len,
                         lr_decay_type=args.lr_decay_type, lr_decay=True, warmup_epochs=args.epoch//100, final_epochs=args.epoch//100*90, 
                         num_workers=num_workers, ckpt_path=ckpt_path, tensorboard_writer=tensorboard_writer)
     trainer = Trainer(model, train_dataset, test_dataset, tconf)

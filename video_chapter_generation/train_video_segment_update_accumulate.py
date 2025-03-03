@@ -58,7 +58,7 @@ class TrainerConfig:
 
     # tensorboard writer
     tensorboard_writer = None
-    gradient_accumulation_steps = 2
+    gradient_accumulation_steps = 4
 
     def __init__(self, **kwargs):
         for k,v in kwargs.items():
@@ -81,7 +81,7 @@ class Trainer:
             # self.model = self.model.to(self.device)
             # self.model = torch.nn.DataParallel(self.model).to(self.device)
 
-    def save_checkpoint(self, epoch, best_result):
+    def save_checkpoint(self, epoch, best_result, is_best=True):
         raw_model = self.model.module if hasattr(self.model, "module") else self.model
         checkpoint_dir = os.path.dirname(self.config.ckpt_path)
         os.makedirs(checkpoint_dir, exist_ok=True)
@@ -164,14 +164,14 @@ class Trainer:
                 test_result = infer_test_result
 
                 if test_result > best_result:
-                            best_result = test_result
-                            if self.config.ckpt_path is not None:
-                                checkpoint_path = self.save_checkpoint(epoch, best_result, is_best=True)
-                                logger.info(f"Saved best model checkpoint to {checkpoint_path}")
+                    best_result = test_result
+                    if self.config.ckpt_path is not None:
+                        checkpoint_path = self.save_checkpoint(epoch, best_result, is_best=True)
+                        logger.info(f"Saved best model checkpoint to {checkpoint_path}")
 
-            elif epoch % 10 == 0 and self.config.ckpt_path is not None:
-                checkpoint_path = self.save_checkpoint(epoch, best_result, is_best=False)
-                logger.info(f"Saved regular checkpoint to {checkpoint_path}")
+            # elif epoch % 10 == 0 and self.config.ckpt_path is not None:
+            #     checkpoint_path = self.save_checkpoint(epoch, best_result, is_best=False)
+            #     logger.info(f"Saved regular checkpoint to {checkpoint_path}")
 
 
     def run_epoch(self, split, epoch, dataset):
@@ -369,7 +369,7 @@ if __name__ == "__main__":
     lang_pretrain_ckpt_path = f"./checkpoint/hugface_bert/pretrain_2880.pth"
     # ckpt_path = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/{args.data_mode}/{args.model_type}_validation/batch_{batch_size}_head_type_{args.head_type}_clip_frame_num_{args.clip_frame_num}/checkpoint.pth"
     ckpt_path = f"./checkpoint/chapter_localization/MVCG_lr_2e-6_fullval/test/"
-    img_dir = "./dataset/youtube_video_frame_dataset"
+    img_dir = "../video_chapter_youtube_dataset/youtube_video_frame_dataset"
     data_file = "./dataset/all_in_one_with_subtitle_final.csv"
     subtitle_dir = "../video_chapter_youtube_dataset/dataset"
     test_clips_json = f"./dataset/dataset_fps1/validation_clips_clip_frame_num_12.json"
@@ -413,7 +413,7 @@ if __name__ == "__main__":
             model = vision_model
             model.build_chapter_head()
             model = model.to(args.gpu)
-            model = torch.nn.DataParallel(model, device_ids=[0,1])
+            # model = torch.nn.DataParallel(model, device_ids=[0,1])
         elif args.data_mode == "all":
             lang_base_model = lang_model.base_model
             vision_base_model = vision_model.base_model
@@ -435,7 +435,7 @@ if __name__ == "__main__":
                 args.window_size)
             model.build_chapter_head(output_size=2, head_type=args.head_type)
             model = model.to(args.gpu)
-            model = torch.nn.DataParallel(model, device_ids=[0,1])
+            # model = torch.nn.DataParallel(model, device_ids=[0,1])
         else:
             raise RuntimeError(f"Unknown data mode {args.data_mode}")
         

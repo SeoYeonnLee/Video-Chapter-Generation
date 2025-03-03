@@ -21,7 +21,7 @@ Y_PAD = -1
 
 
 class YoutubeClipDataset:
-    def __init__(self, img_dir, data_file, vid_file, tokenizer, clip_frame_num, max_text_len, mode="all", transform=None, target_transform=None):
+    def __init__(self, img_dir, data_file, vid_file, tokenizer, clip_frame_num, max_text_len, mode="all", transform=None, target_transform=None, subtitle_dir=None):
         """
         Sample a positive or negative clip from dataset  
         Note that the video frame is sampled by 1 frame/second
@@ -48,7 +48,10 @@ class YoutubeClipDataset:
         self.vids = vids
 
         # asr files
-        asr_file_list = glob.glob(os.path.dirname(data_file) + "/*/subtitle_*.json")
+        # asr_file_list = glob.glob(os.path.dirname(data_file) + "/*/subtitle_*.json")
+        subtitle_path = os.path.dirname(data_file) if subtitle_dir is None else subtitle_dir
+        asr_file_list = glob.glob(subtitle_path + "/*/subtitle_*.json")
+        
         self.vid2asr_files = dict()
         for asr_file in asr_file_list:
             filename = os.path.basename(asr_file)
