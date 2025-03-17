@@ -10,146 +10,82 @@ from model.fusion.window_self_attention import VideoChapterClassifier
 class CrossAttention(nn.Module):
     def __init__(self, hidden_size, num_heads, dropout=0.1):
         super().__init__()
+        if hidden_size % num_heads != 0:
+            raise ValueError(
+                f"The hidden size {hidden_size} is not a multiple of the number of attention "
+                f"heads {num_heads}."
+            )
+            
         self.hidden_size = hidden_size
         self.num_heads = num_heads
         self.head_dim = hidden_size // num_heads
-        assert self.head_dim * num_heads == hidden_size, "hidden_size must be divisible by num_heads"
 
-        # Layer norms
-        self.lang_norm = nn.LayerNorm(hidden_size)
-        self.vision_norm = nn.LayerNorm(hidden_size)
-        self.ffn_norm = nn.LayerNorm(hidden_size)
-
-        # Attention projections
         self.query_proj = nn.Linear(hidden_size, hidden_size)
         self.key_proj = nn.Linear(hidden_size, hidden_size)
         self.value_proj = nn.Linear(hidden_size, hidden_size)
         self.out_proj = nn.Linear(hidden_size, hidden_size)
 
-        # Local position encoding for frames
-        self.frame_pos_encoding = nn.Sequential(
-            nn.Linear(1, hidden_size//2),
-            nn.LayerNorm(hidden_size//2),
-            nn.Tanh(),
-            nn.Linear(hidden_size//2, hidden_size),
-            nn.LayerNorm(hidden_size),
-            nn.Dropout(dropout)
-        )
+        self.lang_norm = nn.LayerNorm(hidden_size)
+        self.vision_norm = nn.LayerNorm(hidden_size)
 
-        # Vision information pooling
-        self.vision_pool = nn.Sequential(
-            nn.Linear(hidden_size, hidden_size),
-            nn.GELU(),
-            nn.Linear(hidden_size, hidden_size)
-        )
-
-        # Learnable fusion ratio
-        self.fusion_alpha = nn.Parameter(torch.tensor(0.5))
-
-        # FFN
-        self.ffn = nn.Sequential(
-            nn.Linear(hidden_size, hidden_size * 4),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_size * 4, hidden_size),
-            nn.Dropout(dropout)
-        )
-
-        # Dropouts
         self.attention_dropout = nn.Dropout(dropout)
-        # self.output_dropout = nn.Dropout(dropout)
+        self.output_dropout = nn.Dropout(dropout)
+        
 
+        self.frame_pos_encoding = nn.Linear(1, hidden_size)
+        
         self._init_weights()
 
     def _init_weights(self):
-        # Initialize attention projection layers
+
         scale = 1.0 / math.sqrt(self.head_dim)
-        for module in [self.query_proj, self.key_proj, self.value_proj, self.out_proj]:
-            nn.init.xavier_uniform_(module.weight, gain=scale)
-            nn.init.zeros_(module.bias)
+        for proj in [self.query_proj, self.key_proj, self.value_proj, self.out_proj]:
+            nn.init.xavier_uniform_(proj.weight, gain=scale)
+            nn.init.zeros_(proj.bias)
 
-        # Initialize position encoding layers
-        for layer in self.frame_pos_encoding:
-            if isinstance(layer, nn.Linear):
-                nn.init.kaiming_normal_(layer.weight)
-                nn.init.zeros_(layer.bias)
+        nn.init.xavier_uniform_(self.frame_pos_encoding.weight)
+        nn.init.zeros_(self.frame_pos_encoding.bias)
 
-        # Initialize vision pool and FFN layers
-        for module in [self.vision_pool, self.ffn]:
-            for layer in module:
-                if isinstance(layer, nn.Linear):
-                    nn.init.kaiming_normal_(layer.weight)
-                    nn.init.zeros_(layer.bias)
 
-    def get_frame_positions(self, num_frames, device):
-        """Calculate local positions for frames (0 to 1)"""
-        positions = torch.arange(num_frames, device=device).float()
+    def get_relative_positions(self, num_frames):
+        positions = torch.arange(num_frames, device=self.query_proj.weight.device).float()
         positions = positions / (num_frames - 1)  # Normalize to [0, 1]
-        positions = torch.clamp(positions, 0, 1)
-        return positions.unsqueeze(-1)  # [num_frames, 1]
+        return positions.unsqueeze(-1) 
 
     def forward(self, lang_emb, vision_emb):
-        """
-        Args:
-            lang_emb: [batch, hidden_size]
-            vision_emb: [batch, num_frames, hidden_size]
-        """
-        device = lang_emb.device
-        batch_size, num_frames = vision_emb.shape[:2]
+        batch_size, num_frames, _ = vision_emb.shape
 
-        # Generate position embeddings for frames
-        local_positions = self.get_frame_positions(num_frames, device)  # [num_frames, 1]
-        frame_pos_emb = self.frame_pos_encoding(local_positions)  # [num_frames, hidden_size]
+        lang_emb = self.lang_norm(lang_emb)
+        vision_emb = self.vision_norm(vision_emb)
         
-        # Add position embeddings to vision features
-        vision_emb = vision_emb + frame_pos_emb.unsqueeze(0)  # [batch, num_frames, hidden_size]
-
-        # Layer normalization
-        normed_lang = self.lang_norm(lang_emb.unsqueeze(1))  # [batch, 1, hidden_size]
-        normed_vision = self.vision_norm(vision_emb)  # [batch, num_frames, hidden_size]
+        position_info = self.get_relative_positions(num_frames)
+        position_emb = self.frame_pos_encoding(position_info)
+        vision_emb = vision_emb + position_emb
         
-        # Project to Q, K, V
-        query = self.query_proj(normed_lang)  # [batch, 1, hidden_size]
-        key = self.key_proj(normed_vision)    # [batch, num_frames, hidden_size]
-        value = self.value_proj(normed_vision) # [batch, num_frames, hidden_size]
+        query = self.query_proj(lang_emb)
+        key = self.key_proj(vision_emb) 
+        value = self.value_proj(vision_emb)
 
-        # Reshape for multi-head attention
         query = query.view(batch_size, 1, self.num_heads, self.head_dim).transpose(1, 2)  # [batch, num_heads, 1, head_dim]
         key = key.view(batch_size, num_frames, self.num_heads, self.head_dim).transpose(1, 2)  # [batch, num_heads, num_frames, head_dim]
         value = value.view(batch_size, num_frames, self.num_heads, self.head_dim).transpose(1, 2)  # [batch, num_heads, num_frames, head_dim]
 
         # Compute attention scores
-        scale = math.sqrt(self.head_dim)
-        attn_scores = torch.matmul(query, key.transpose(-2, -1))  # [batch, num_heads, 1, num_frames]
-        attn_scores = torch.clamp(attn_scores, -10, 10)
-        attn_scores = attn_scores / (scale + 1e-6)
+        attention_scores = torch.matmul(query, key.transpose(-2, -1))  # [batch, num_heads, 1, num_frames]
+        attention_scores = attention_scores / math.sqrt(self.head_dim)
         
-        # Apply softmax and dropout
-        attn_probs = F.softmax(attn_scores, dim=-1)
-        attn_probs = self.attention_dropout(attn_probs)
+        attention_weights = F.softmax(attention_scores, dim=-1)
+        attention_weights = self.attention_dropout(attention_weights)
 
-        # Apply attention to Value
-        attn_output = torch.matmul(attn_probs, value)  # [batch, num_heads, 1, head_dim]
-        attn_output = attn_output.transpose(1, 2).contiguous()  # [batch, 1, num_heads, head_dim]
-        attn_output = attn_output.view(batch_size, 1, self.hidden_size)  # [batch, 1, hidden_size]
+        context = torch.matmul(attention_weights, value)  # [batch, num_heads, 1, head_dim]
         
-        # Process vision information
-        vision_pooled = self.vision_pool(normed_vision.mean(dim=1, keepdim=True))  # [batch, 1, hidden_size]
+        context = context.transpose(1, 2).contiguous()  # [batch, 1, num_heads, head_dim]
+        context = context.view(batch_size, 1, self.hidden_size)  # [batch, 1, hidden_size]
 
-        # Multi-head attention output projection & dropout
-        fusion_emb = self.out_proj(attn_output)  # [batch, 1, hidden_size]
-        # fusion_emb = self.output_dropout(fusion_emb)  # [batch, 1, hidden_size]
-
-        # Balanced fusion with learnable ratio
-        alpha = torch.sigmoid(self.fusion_alpha)
-        fusion_emb = fusion_emb + alpha * normed_lang + (1 - alpha) * vision_pooled
-
-        # FFN and residual connection
-        normed_fusion = self.ffn_norm(fusion_emb)  # [batch, 1, hidden_size]
-        ffn_output = self.ffn(normed_fusion)  # [batch, 1, hidden_size]
-        fusion_emb = ffn_output + fusion_emb  # [batch, 1, hidden_size]
-
-        return fusion_emb.squeeze(1)  # [batch, hidden_size]
+        output = self.out_proj(context)
+        output = self.output_dropout(output)
+        
+        return output.squeeze(1) 
 
 class SelfAttention(nn.Module):
     """
@@ -236,7 +172,7 @@ class ChapterHead(nn.Module):
             self.head = SelfAttention(hidden_size, 4, hidden_size)
         elif self.head_type == "cross_attn":
             print(f'head type: cross attention')
-            self.head = CrossAttention(hidden_size, num_heads=4)
+            self.head = CrossAttention(hidden_size, num_heads=16)
             self.output_proj = nn.Linear(hidden_size, output_size)
 
         else:
@@ -339,7 +275,7 @@ class TwoStream(nn.Module):
         
         window_config = type('Config', (), {
             'hidden_size': self.hidden_size,
-            'num_attention_heads': 8,
+            'num_attention_heads': 16,
             'attention_probs_dropout_prob': 0.1,
             'window_size': self.window_size
         })
@@ -418,31 +354,12 @@ class TwoStream(nn.Module):
             }
             lang_model_output = self.lang_model(**lang_model_inputs)
             lang_emb = lang_model_output.pooler_output
-            # cache_key = f"{clip_text_ids.shape}_{hash(clip_text_ids.cpu().numpy().tobytes())}_{hash(clip_attn_mask.cpu().numpy().tobytes())}"
-            # with torch.no_grad():
-            #     lang_emb = self.cache_manager.get_or_compute(
-            #         owner=self,
-            #         cache_name='lang_features',
-            #         key=cache_key,
-            #         compute_fn=lambda: self.lang_model(
-            #             input_ids=clip_text_ids,
-            #             attention_mask=clip_attn_mask
-            #         )["pooler_output"]
-            #     )
 
             # vision
             img_clip = img_clips[:, i]
             img_clip = rearrange(img_clip, 'b t c h w -> (b t) c h w').contiguous()
 
             vision_emb = self.vision_model(img_clip)
-            # cache_key = f"{img_clip.shape}_{hash(img_clip.cpu().numpy().tobytes())}"
-            # # with torch.no_grad():
-            # vision_emb = self.cache_manager.get_or_compute(
-            #     owner=self,
-            #     cache_name='vision_features',
-            #     key=cache_key,
-            #     compute_fn=lambda: self.vision_model(img_clip)
-            # )
 
             vision_emb = vision_emb.view(batch_size, self.segment_size, -1) # [batch, 16, 2048]
 
