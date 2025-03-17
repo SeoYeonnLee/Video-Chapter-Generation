@@ -25,6 +25,7 @@ from eval_utils.eval_utils import convert_clip_label2cut_point, calculate_pr
 from model.lang import bert_hugface
 from model.vision import resnet50_tsm, resnet50
 from model.fusion import two_stream
+from tqdm import tqdm
 
 
 
@@ -32,12 +33,12 @@ if __name__ == "__main__":
     set_random_seed.use_fix_random_seed()
     import argparse
     parser = argparse.ArgumentParser(description='video chapter model')
-    parser.add_argument('--gpu', default=2, type=int)
+    parser.add_argument('--gpu', default=0, type=int)
     parser.add_argument('--data_mode', default="all", type=str, help="text (text only), image (image only) or all (multiple-model)")
     parser.add_argument('--model_type', default="two_stream", type=str, help="bert, r50tsm, r50, two_stream")
     parser.add_argument('--clip_frame_num', default=16, type=int)
     parser.add_argument('--epoch', default=3000, type=int)
-    parser.add_argument('--batch_size', default=8, type=int)
+    parser.add_argument('--batch_size', default=16, type=int)
     parser.add_argument('--lr_decay_type', default="cosine", type=str)
     parser.add_argument('--head_type', default="mlp", type=str, help="only work on two_stream model")
     parser.add_argument('--data_type', default="all", type=str, help="all, easy, hard, ambiguous")
@@ -51,17 +52,17 @@ if __name__ == "__main__":
     #     b = 32
     # else:
     #     b = 64
-    checkpoint_dir = f"MVCG_window_attn_8"#{args.batch_size}"
-    ckpt_path = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/localization/{checkpoint_dir}/checkpoint_30_score_0.3590.pth"
+    checkpoint_dir = f"MVCG"#{args.batch_size}"
+    ckpt_path = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/chapter_localization/{checkpoint_dir}/checkpoint_15_score_0.4130.pth"
     result_file = f"./test_results/chapter_localization/{checkpoint_dir}_.txt"
-    vid2cut_points_file = f"./test_results/{checkpoint_dir}_vid2cut_points.json"
-    data_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/all_in_one_with_subtitle_final.csv"
-    test_clips_json = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/test_clips_clip_frame_num_{clip_frame_num}.json"
+    vid2cut_points_file = f"./test_results/chapter_localization/{checkpoint_dir}_vid2cut_points.json"
+    data_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/dataset/all_in_one_with_subtitle_final.csv"
+    test_clips_json = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/dataset/dataset_fps1/test_clips_clip_frame_num_{clip_frame_num}.json"
     # test_easy_clips_json = f"/opt/tiger/video_chapter_youtube_dataset/dataset/test_easy_clips_clip_frame_num_{clip_frame_num}.json"
     # test_hard_clips_json = f"/opt/tiger/video_chapter_youtube_dataset/dataset/test_hard_clips_clip_frame_num_{clip_frame_num}.json"
     
-    train_vid_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/final_train.txt"
-    test_vid_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/final_test.txt"
+    train_vid_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/dataset/final_train.txt"
+    test_vid_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/dataset/final_test.txt"
     img_dir = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/youtube_video_frame_dataset"
 
 
@@ -163,10 +164,11 @@ if __name__ == "__main__":
     all_pred_label = []
     all_pred_score = []
     batch_i = -1
-    for img_clip, text_ids, attention_mask, label in infer_video_loader:
+    pbar = tqdm(infer_video_loader, total=len(infer_video_loader))
+    for img_clip, text_ids, attention_mask, label in pbar:
         global_st = time.time()
         batch_i += 1
-        print(f"process {batch_i}/{len(infer_video_loader)}...")
+        # print(f"process {batch_i}/{len(infer_video_loader)}...")
 
         st = time.time()
         img_clip = img_clip.float().to(args.gpu)
@@ -174,7 +176,7 @@ if __name__ == "__main__":
         attention_mask = attention_mask.to(args.gpu)   
         label = label.to(args.gpu)
         et = time.time()
-        print(f"cost time1 {et - st}s")
+        # print(f"cost time1 {et - st}s")
 
         # frame index
         start_idx = batch_i * args.batch_size
@@ -193,7 +195,7 @@ if __name__ == "__main__":
                 raise RuntimeError(f"Unknown data mode {args.data_mode}")
 
             et = time.time()
-            print(f"cost time2 {et - st}s")
+            # print(f"cost time2 {et - st}s")
 
             st = time.time()
             topk_scores, topk_labels = binary_logits.data.topk(1, 1, True, True)
@@ -204,10 +206,10 @@ if __name__ == "__main__":
             all_pred_score.extend(list(scores))
 
         et = time.time()
-        print(f"cost time3 {et - st}s")
+        # print(f"cost time3 {et - st}s")
         
         global_et = time.time()
-        print(f"global cost time {global_et - global_st}s")
+        # print(f"global cost time {global_et - global_st}s")
 
         del img_clip, text_ids, attention_mask, label
         del binary_logits, binary_prob, topk_scores, topk_labels

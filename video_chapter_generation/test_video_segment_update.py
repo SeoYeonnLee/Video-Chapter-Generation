@@ -33,7 +33,7 @@ if __name__ == "__main__":
     set_random_seed.use_fix_random_seed()
     import argparse
     parser = argparse.ArgumentParser(description='video chapter model')
-    parser.add_argument('--gpu', default=0, type=int)
+    parser.add_argument('--gpu', default=2, type=int)
     parser.add_argument('--data_mode', default="all", type=str, help="text (text only), image (image only) or all (multiple-model)")
     parser.add_argument('--model_type', default="two_stream", type=str, help="bert, r50tsm, r50, two_stream")
     parser.add_argument('--clip_frame_num', default=16, type=int)
@@ -53,17 +53,17 @@ if __name__ == "__main__":
     #     b = 32
     # else:
     #     b = 64
-    checkpoint_dir = f"MVCG_cross_window_attn_8_accumulation_2e-6_fullval"#{args.batch_size}"
-    ckpt_path = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/chapter_localization/{checkpoint_dir}/checkpoint_150_score_0.3682.pth"
-    result_file = f"./test_results/chapter_localization/{checkpoint_dir}_150epoch_.txt"
-    vid2cut_points_file = f"./test_results/chapter_localization/{checkpoint_dir}_150epoch_vid2cut_points.json"
-    data_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/all_in_one_with_subtitle_final.csv"
-    test_clips_json = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/test_clips_clip_frame_num_{clip_frame_num}.json"
+    checkpoint_dir = f"cross16_window16/lr_2e-6"#{args.batch_size}"
+    ckpt_path = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/chapter_localization/{checkpoint_dir}/ckpt_epoch150_0.3781.pth"
+    result_file = f"./test_results/chapter_localization/{checkpoint_dir}_.txt"
+    vid2cut_points_file = f"./test_results/chapter_localization/{checkpoint_dir}_vid2cut_points.json"
+    data_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/dataset/all_in_one_with_subtitle_final.csv"
+    test_clips_json = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/dataset/dataset_fps1/test_clips_clip_frame_num_{clip_frame_num}.json"
     # test_easy_clips_json = f"/opt/tiger/video_chapter_youtube_dataset/dataset/test_easy_clips_clip_frame_num_{clip_frame_num}.json"
     # test_hard_clips_json = f"/opt/tiger/video_chapter_youtube_dataset/dataset/test_hard_clips_clip_frame_num_{clip_frame_num}.json"
     
-    train_vid_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/final_train.txt"
-    test_vid_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/final_test.txt"
+    train_vid_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/dataset/final_train.txt"
+    test_vid_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/dataset/final_test.txt"
     img_dir = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/youtube_video_frame_dataset"
 
 
@@ -175,6 +175,7 @@ if __name__ == "__main__":
     batch_i = -1
     pbar = tqdm(infer_video_loader, total=len(infer_video_loader))
     for img_clip, text_ids, attention_mask, label, clip_info in pbar:
+        # print(f'img clip shgpe: {img_clip.shape}')
         global_st = time.time()
         batch_i += 1
         # print(f"process {batch_i}/{len(infer_video_loader)}...")

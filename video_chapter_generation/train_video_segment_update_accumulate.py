@@ -83,13 +83,15 @@ class Trainer:
 
     def save_checkpoint(self, epoch, best_result, is_best=True):
         raw_model = self.model.module if hasattr(self.model, "module") else self.model
-        checkpoint_dir = os.path.dirname(self.config.ckpt_path)
+        # checkpoint_dir = os.path.dirname(self.config.ckpt_path)
+        checkpoint_dir = self.config.ckpt_path
         os.makedirs(checkpoint_dir, exist_ok=True)
 
         if is_best:
-            ckpt_path = f"{base_path}_{epoch}_score_{best_result:.4f}.pth"
+            ckpt_path = os.path.join(checkpoint_dir, f"ckpt_epoch{epoch}_{best_result:.4f}.pth")
         else:
-            ckpt_path = f"{base_path}_{epoch}.pth"
+            ckpt_path = os.path.join(checkpoint_dir, f"ckpt_epoch{epoch}.pth")
+        
         logger.info(f"Saving checkpoint at epoch {epoch} to {ckpt_path}")
 
         checkpoint = {
@@ -115,7 +117,7 @@ class Trainer:
         
         for checkpoint in checkpoints:
             filename = os.path.basename(checkpoint)
-            match = re.search(r'_(\d+)(?:_score_[\d.]+)?\.pth$', filename)
+            match = re.search(r'ckpt_epoch(\d+)(?:_[\d.]+)?\.pth$', filename)
             if match:
                 epoch = int(match.group(1))
                 if epoch > latest_epoch:
@@ -159,7 +161,7 @@ class Trainer:
         for epoch in range(self.config.start_epoch+1, self.config.max_epochs+1):
             self.run_epoch('train', epoch, self.train_dataset)
 
-            if self.test_dataset is not None and (epoch % 30 == 0):
+            if self.test_dataset is not None and ((epoch % 30 == 0) or (epoch == 15)):
                 infer_test_result = self.run_epoch("infer_test", epoch, self.test_dataset)
                 test_result = infer_test_result
 
@@ -229,7 +231,7 @@ class Trainer:
             if is_train:
                 loss = loss / self.config.gradient_accumulation_steps
                 loss.backward()
-
+                
                 # gradient accumulation
                 if (it + 1) % self.config.gradient_accumulation_steps == 0:
                     torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config.grad_norm_clip)
@@ -347,8 +349,8 @@ if __name__ == "__main__":
     parser.add_argument('--gpu', default=0, type=int)
     parser.add_argument('--data_mode', default="all", type=str, help="text (text only), image (image only) or all (multiple-model)")
     parser.add_argument('--model_type', default="two_stream", type=str, help="bert, r50tsm, two_stream")
-    parser.add_argument('--clip_frame_num', default=12, type=int)
-    parser.add_argument('--epoch', default=270, type=int)
+    parser.add_argument('--clip_frame_num', default=16, type=int)
+    parser.add_argument('--epoch', default=300, type=int)
     parser.add_argument('--batch_size', default=4, type=int)
     parser.add_argument('--lr_decay_type', default="cosine", type=str)
     parser.add_argument('--head_type', default="cross_attn", type=str, help="mlp, self_attn, cross_attn, only work on two_stream model")
@@ -368,15 +370,16 @@ if __name__ == "__main__":
     # lang_pretrain_ckpt_path = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/hugface_bert_pretrain/batch_{batch_size}_lr_decay_cosine_train_test_split/pretrain.pth"
     lang_pretrain_ckpt_path = f"./checkpoint/hugface_bert/pretrain_2880.pth"
     # ckpt_path = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/{args.data_mode}/{args.model_type}_validation/batch_{batch_size}_head_type_{args.head_type}_clip_frame_num_{args.clip_frame_num}/checkpoint.pth"
-    ckpt_path = f"./checkpoint/chapter_localization/MVCG_lr_2e-6_fullval/test/"
+    ckpt_path = f"./checkpoint/chapter_localization/cross16_window16/lr_2e-6"
     img_dir = "../video_chapter_youtube_dataset/youtube_video_frame_dataset"
     data_file = "./dataset/all_in_one_with_subtitle_final.csv"
     subtitle_dir = "../video_chapter_youtube_dataset/dataset"
-    test_clips_json = f"./dataset/dataset_fps1/validation_clips_clip_frame_num_12.json"
+    test_clips_json = f"./dataset/dataset_fps1/validation_clips_clip_frame_num_16.json"
 
     train_vid_file = "./dataset/final_train.txt"
     test_vid_file = "./dataset/final_validation.txt"
-    tensorboard_log = os.path.dirname(ckpt_path)
+    # tensorboard_log = os.path.dirname(ckpt_path)
+    tensorboard_log = ckpt_path
     tensorboard_writer = SummaryWriter(tensorboard_log)
 
     try:
@@ -413,7 +416,7 @@ if __name__ == "__main__":
             model = vision_model
             model.build_chapter_head()
             model = model.to(args.gpu)
-            # model = torch.nn.DataParallel(model, device_ids=[0,1])
+            model = torch.nn.DataParallel(model, device_ids=[0,1])
         elif args.data_mode == "all":
             lang_base_model = lang_model.base_model
             vision_base_model = vision_model.base_model
@@ -435,7 +438,7 @@ if __name__ == "__main__":
                 args.window_size)
             model.build_chapter_head(output_size=2, head_type=args.head_type)
             model = model.to(args.gpu)
-            # model = torch.nn.DataParallel(model, device_ids=[0,1])
+            model = torch.nn.DataParallel(model, device_ids=[0,1])
         else:
             raise RuntimeError(f"Unknown data mode {args.data_mode}")
         

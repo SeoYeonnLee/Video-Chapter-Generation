@@ -81,6 +81,7 @@ class Trainer:
         raw_model = self.model.module if hasattr(self.model, "module") else self.model
         checkpoint_dir = os.path.dirname(self.config.ckpt_path)
         os.makedirs(checkpoint_dir, exist_ok=True)
+        base_path = os.path.splitext(self.config.ckpt_path)[0]
 
         if is_best:
             ckpt_path = f"{base_path}_{epoch}_score_{best_result:.4f}.pth"
@@ -95,6 +96,10 @@ class Trainer:
                 "optimizer_state_dict": self.optimizer.state_dict()
             }
 
+        torch.save(checkpoint, ckpt_path)
+        return ckpt_path
+
+
     def train(self):
         raw_model = self.model.module if hasattr(self.model, "module") else self.model
         self.optimizer = raw_model.configure_optimizers(self.config)
@@ -106,7 +111,7 @@ class Trainer:
         for epoch in range(self.config.start_epoch+1, self.config.max_epochs+1):
             self.run_epoch('train', epoch, self.train_dataset)
 
-            if self.test_dataset is not None and (epoch % 2 == 0 or epoch == 15 or epoch == 45):
+            if self.test_dataset is not None and (epoch % 30 == 0 or epoch == 15 or epoch == 45 or epoch == 1):
                 infer_test_result = self.run_epoch("infer_test", epoch, self.test_dataset)
                 test_result = infer_test_result
 
@@ -137,7 +142,6 @@ class Trainer:
         losses = []
         
         loader = DataLoader(dataset, shuffle=shuffle, pin_memory=True, batch_size=used_batch_size, num_workers=self.config.num_workers)
-        # pbar = tqdm(enumerate(loader), total=len(loader)) if is_train else enumerate(loader)
         pbar = tqdm(enumerate(loader), total=len(loader))
 
         for it, (img_clip, text_ids, attention_mask, label) in pbar:
@@ -237,11 +241,11 @@ class Trainer:
 
                     # report progress
                     n_iter = epoch * len(loader) + it
-                    self.config.tensorboard_writer.add_scalar('Train/loss', loss.item(), n_iter)
+                    self.config.tensorboard_writer.add_scalar('Train/loss', loss.item() * self.config.gradient_accumulation_steps, n_iter)
                     if auc:
                         self.config.tensorboard_writer.add_scalar('Train/auc', auc, n_iter)
                         self.config.tensorboard_writer.add_scalar('Train/m_ap', m_ap, n_iter)
-                    pbar.set_description(f"epoch {epoch} iter {it}: train loss {loss.item():.5f}, auc {auc:.5f}, m_ap {m_ap: .5f}, lr {lr:e}")
+                    pbar.set_description(f"epoch {epoch} iter {it}: train loss {loss.item() * self.config.gradient_accumulation_steps:.5f}, auc {auc:.5f}, m_ap {m_ap: .5f}, lr {lr:e}")
 
         if not is_train:
             test_aucs = []
