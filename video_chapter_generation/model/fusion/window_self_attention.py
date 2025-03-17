@@ -204,4 +204,4 @@ class VideoChapterClassifier(nn.Module):
         logits = self.classifier(attention_output.squeeze(1))
         probs = F.softmax(logits, dim=-1)
         
-        return logits, probs
+        return attention_output.squeeze(1), logits, probs

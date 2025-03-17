@@ -5,7 +5,7 @@ from einops import rearrange
 import math
 from memory_cache_utils import MemoryManager
 from model.fusion.window_self_attention import VideoChapterClassifier
-
+# from model.fusion.stacked_window_self_attention import StackedVideoChapterAttention
 
 class CrossAttention(nn.Module):
     def __init__(self, hidden_size, num_heads, dropout=0.1):
@@ -257,6 +257,40 @@ class TwoStream(nn.Module):
             nn.Linear(hidden_size//16, 2)
         )
 
+        self.final_classifier = nn.Sequential(
+                nn.Linear(self.hidden_size * 2, self.hidden_size * 4),
+                nn.LayerNorm(self.hidden_size * 4),
+                nn.ReLU(),
+                nn.Dropout(0.2),
+
+                nn.Linear(self.hidden_size * 4, self.hidden_size * 4),
+                nn.LayerNorm(self.hidden_size * 4),
+                nn.ReLU(),
+                nn.Dropout(0.2),
+
+                nn.Linear(self.hidden_size * 4, self.hidden_size * 2),
+                nn.LayerNorm(self.hidden_size * 2),
+                nn.ReLU(),
+                nn.Dropout(0.2),
+
+                nn.Linear(self.hidden_size * 2, self.hidden_size),
+                nn.LayerNorm(self.hidden_size),
+                nn.ReLU(),
+                nn.Dropout(0.2),
+
+                nn.Linear(self.hidden_size, self.hidden_size // 2),
+                nn.LayerNorm(self.hidden_size // 2),
+                nn.ReLU(),
+                nn.Dropout(0.2),
+                
+                nn.Linear(self.hidden_size // 2, self.hidden_size // 4),
+                nn.LayerNorm(self.hidden_size // 4),
+                nn.ReLU(),
+                nn.Dropout(0.2),
+                
+                nn.Linear(self.hidden_size // 4, 2)
+            )
+
     def build_chapter_head(self, output_size, head_type="mlp"):
         """
         build a new head for video chapter prediction
@@ -280,6 +314,7 @@ class TwoStream(nn.Module):
             'window_size': self.window_size
         })
         self.window_attn = VideoChapterClassifier(window_config)
+        # self.window_attn = StackedVideoChapterAttention(window_config)
 
     def configure_optimizers(self, train_config):
         """
@@ -367,12 +402,24 @@ class TwoStream(nn.Module):
             clip_fusion_embs.append(clip_fusion)
 
         all_fusion_embs = torch.stack(clip_fusion_embs, dim=1).to(device) # [batch, num_clips, hidden_size]
-        # MLP
-        # all_fusion_embs = all_fusion_embs.view(batch_size, -1)
-        # binary_logits = self.window_mlp(all_fusion_embs)
-        # binary_prob = F.softmax(binary_logits, dim=1)
 
-        # Self Attention
-        binary_logits, binary_prob = self.window_attn(all_fusion_embs, clip_info)
-        
+        # Window Self Attention
+        attn_output, logits, probs = self.window_attn(all_fusion_embs, clip_info)
+
+        middle_idx = num_clips // 2
+
+        if middle_idx > 0 and middle_idx < num_clips - 1:
+            prev_clip_emb = clip_fusion_embs[middle_idx - 1]
+            next_clip_emb = clip_fusion_embs[middle_idx + 1]
+            
+            clip_diff = next_clip_emb - prev_clip_emb
+
+            combined_features = torch.cat([attn_output, clip_diff], dim=1)
+            binary_logits = self.final_classifier(combined_features)
+            binary_prob = F.softmax(binary_logits, dim=1)
+
+        else:
+            binary_logits = logits
+            binary_prob = probs
+
         return binary_logits, binary_prob
