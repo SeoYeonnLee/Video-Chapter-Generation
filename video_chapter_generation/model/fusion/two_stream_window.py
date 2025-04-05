@@ -4,7 +4,7 @@ from torch.nn import functional as F
 from einops import rearrange
 import math
 from memory_cache_utils import MemoryManager
-from model.fusion.window_self_attention import VideoChapterClassifier
+from model.fusion.stacked_window_self_attention import VideoChapterClassifier
 
 
 class CrossAttention(nn.Module):
@@ -141,33 +141,34 @@ class ChapterHead(nn.Module):
         self.window_size = window_size
         self.num_windows = 2 * window_size + 1
 
-        self.lang_proj_head = nn.Linear(lang_emb_size, hidden_size, bias=False)
-        self.vision_proj_head = nn.Linear(vision_emb_size, hidden_size, bias=False)
+        # self.lang_proj_head = nn.Linear(lang_emb_size, hidden_size, bias=False)
+        self.lang_proj_head = nn.Sequential(
+            nn.Linear(lang_emb_size, lang_emb_size//2), 
+            nn.LayerNorm(lang_emb_size//2),
+            nn.ReLU(),
+            nn.Dropout(0.1),
+
+            nn.Linear(lang_emb_size//2, hidden_size), 
+        )
+
+        # self.vision_proj_head = nn.Linear(vision_emb_size, hidden_size, bias=False)
+        self.vision_proj_head = nn.Sequential(
+            nn.Linear(vision_emb_size, 8 * hidden_size), 
+            nn.LayerNorm(8 * hidden_size),
+            nn.ReLU(),
+            nn.Dropout(0.1),
+
+            nn.Linear(8 * hidden_size, 4 * hidden_size),
+            nn.LayerNorm(4 * hidden_size),
+            nn.ReLU(),
+            nn.Dropout(0.1), 
+
+            nn.Linear(4 * hidden_size, hidden_size)
+        )
 
         if head_type == "mlp":
             self.head = nn.Linear((segment_size + 1) * hidden_size, hidden_size, bias=True)
             print(f'head type: mlp')
-
-            # # 파라미터 공유 x
-            # self.window_heads = nn.ModuleList([
-            #     nn.Linear((segment_size + 1) * hidden_size, hidden_size, bias=True)
-            #     for _ in range(self.num_windows)
-            # ])
-
-            # input_size = (segment_size + 1) * hidden_size
-            # self.head = nn.Sequential(
-            #     nn.Linear(input_size, input_size),
-            #     nn.LayerNorm(input_size),
-            #     nn.ReLU(),
-            #     nn.Dropout(0.2),
-                
-            #     nn.Linear(input_size, hidden_size * 4),
-            #     nn.LayerNorm(hidden_size * 4),
-            #     nn.ReLU(),
-            #     nn.Dropout(0.2),
-                
-            #     nn.Linear(hidden_size * 4, hidden_size),
-            # )
         elif head_type == "self_attn":
             self.head = SelfAttention(hidden_size, 4, hidden_size)
         elif self.head_type == "cross_attn":
@@ -199,9 +200,6 @@ class ChapterHead(nn.Module):
             fusion_emb = torch.cat([vision_out, lang_out.unsqueeze(1)], dim=1)
             fusion_emb = fusion_emb.view(batch_size, -1)
             fusion_emb = self.head(fusion_emb)
-            
-            # 파라미터 공유 x
-            # fusion_emb = self.window_heads[window_idx](fusion_emb)
         elif self.head_type == "attn":
             fusion_emb = torch.cat([vision_out, lang_out.unsqueeze(1)], dim=1)
             fusion_emb = self.head(fusion_emb) # 검수 필요
@@ -362,6 +360,7 @@ class TwoStream(nn.Module):
             vision_emb = self.vision_model(img_clip)
 
             vision_emb = vision_emb.view(batch_size, self.segment_size, -1) # [batch, 16, 2048]
+
 
             clip_fusion = self.fusion_head(lang_emb, vision_emb, window_idx) # [batch, hidden_size]
             clip_fusion_embs.append(clip_fusion)
