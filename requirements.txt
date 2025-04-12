@@ -5,3 +5,12 @@ yt_dlp
 einops
 sentencepiece
 rouge
+tqdm
+tensorboard
+transformers
+scipy
+matplotlib
+pandas
+numpy
+psutil
+scikit-learn
