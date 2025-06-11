@@ -42,7 +42,7 @@ class VideoChapterWindowAttention(nn.Module):
             nn.Dropout(dropout)
         )
 
-        self.window_pos_bias = nn.Parameter(torch.zeros(1, num_attention_heads, 1, window_size))
+        self.window_pos_bias = nn.Parameter(torch.zeros(1, num_attention_heads, 1, 2*window_size+1))
 
         self._init_weights()
 

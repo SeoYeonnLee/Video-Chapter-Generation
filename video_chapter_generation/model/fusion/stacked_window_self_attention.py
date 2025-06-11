@@ -152,7 +152,7 @@ class StackedVideoChapterAttention(nn.Module):
     def __init__(self, config):
         super().__init__()
         
-        self.num_layers = 6 
+        self.num_layers = 6
 
         self.layers = nn.ModuleList([
             VideoChapterBlock(

@@ -4,7 +4,8 @@ from torch.nn import functional as F
 from einops import rearrange
 import math
 from memory_cache_utils import MemoryManager
-from model.fusion.stacked_window_self_attention import VideoChapterClassifier
+# from model.fusion.window_self_attention import VideoChapterClassifier
+from model.fusion.stacked_window_self_attention import StackedVideoChapterAttention
 
 
 class CrossAttention(nn.Module):
@@ -24,7 +25,7 @@ class CrossAttention(nn.Module):
         self.key_proj = nn.Linear(hidden_size, hidden_size)
         self.value_proj = nn.Linear(hidden_size, hidden_size)
         self.out_proj = nn.Linear(hidden_size, hidden_size)
-
+    
         self.lang_norm = nn.LayerNorm(hidden_size)
         self.vision_norm = nn.LayerNorm(hidden_size)
 
@@ -139,38 +140,102 @@ class ChapterHead(nn.Module):
         self.hidden_size = hidden_size
         self.head_type = head_type
         self.window_size = window_size
-        self.num_windows = 2 * window_size + 1
+        self.num_clips = 2 * window_size + 1
 
         # self.lang_proj_head = nn.Linear(lang_emb_size, hidden_size, bias=False)
-        self.lang_proj_head = nn.Sequential(
-            nn.Linear(lang_emb_size, lang_emb_size//2), 
-            nn.LayerNorm(lang_emb_size//2),
-            nn.ReLU(),
-            nn.Dropout(0.1),
-
-            nn.Linear(lang_emb_size//2, hidden_size), 
-        )
+        self.lang_proj_heads = nn.ModuleList([
+            nn.Sequential(
+                nn.Linear(lang_emb_size, lang_emb_size//2), 
+                nn.LayerNorm(lang_emb_size//2),
+                nn.ReLU(),
+                nn.Dropout(0.1),
+                nn.Linear(lang_emb_size//2, hidden_size), 
+            ) for _ in range(self.num_clips)
+        ])
 
         # self.vision_proj_head = nn.Linear(vision_emb_size, hidden_size, bias=False)
-        self.vision_proj_head = nn.Sequential(
-            nn.Linear(vision_emb_size, 8 * hidden_size), 
-            nn.LayerNorm(8 * hidden_size),
-            nn.ReLU(),
-            nn.Dropout(0.1),
-
-            nn.Linear(8 * hidden_size, 4 * hidden_size),
-            nn.LayerNorm(4 * hidden_size),
-            nn.ReLU(),
-            nn.Dropout(0.1), 
-
-            nn.Linear(4 * hidden_size, hidden_size)
-        )
+        self.vision_proj_heads = nn.ModuleList([
+            nn.Sequential(
+                nn.Linear(vision_emb_size, 8 * hidden_size), 
+                nn.LayerNorm(8 * hidden_size),
+                nn.ReLU(),
+                nn.Dropout(0.1),
+                nn.Linear(8 * hidden_size, 4 * hidden_size),
+                nn.LayerNorm(4 * hidden_size),
+                nn.ReLU(),
+                nn.Dropout(0.1), 
+                nn.Linear(4 * hidden_size, hidden_size)
+            ) for _ in range(self.num_clips)
+        ])
 
         if head_type == "mlp":
-            self.head = nn.Linear((segment_size + 1) * hidden_size, hidden_size, bias=True)
             print(f'head type: mlp')
+            # self.head = nn.Linear((segment_size + 1) * hidden_size, hidden_size, bias=True)
+            self.head = nn.ModuleList([
+                nn.Sequential(
+                    nn.Linear((segment_size + 1) * hidden_size, 8 * hidden_size), 
+                    nn.LayerNorm(8 * hidden_size),
+                    nn.ReLU(),
+                    nn.Dropout(0.1),
+                    nn.Linear(8 * hidden_size, 4 * hidden_size),
+                    nn.LayerNorm(4 * hidden_size),
+                    nn.ReLU(),
+                    nn.Dropout(0.1), 
+                    nn.Linear(4 * hidden_size, hidden_size)
+                ) for _ in range(self.num_clips)
+            ])
+        elif head_type == "bilinear":
+            print(f'head type: bilinear')
+            self.bilinear_layers = nn.ModuleList([
+                nn.Bilinear(hidden_size, hidden_size * segment_size, hidden_size * 2)
+                for _ in range(self.num_clips)
+            ])
+            
+            self.head = nn.ModuleList([
+                nn.Sequential(
+                    nn.LayerNorm(hidden_size * 2),
+                    nn.ReLU(),
+                    nn.Dropout(0.1),
+                    nn.Linear(hidden_size * 2, hidden_size * 1),
+                    nn.LayerNorm(hidden_size * 1),
+                    nn.ReLU(),
+                    nn.Dropout(0.1),
+                    nn.Linear(hidden_size * 1, hidden_size),
+                ) for _ in range(self.num_clips)
+            ])
+
+        elif head_type == "multiplication":
+            print(f'head type: multiplication')
+            self.lang_expand_layers = nn.ModuleList([
+                nn.Sequential(
+                    nn.Linear(hidden_size, hidden_size * 8),
+                    nn.LayerNorm(hidden_size * 8),
+                    nn.ReLU(),
+                    nn.Dropout(0.1),
+                    nn.Linear(hidden_size * 8, hidden_size * segment_size),
+                    nn.LayerNorm(hidden_size * segment_size),
+                    nn.ReLU(),
+                    nn.Dropout(0.1)
+                ) for _ in range(self.num_clips)
+            ])
+            
+            self.head = nn.ModuleList([
+                nn.Sequential(
+                    nn.Linear(hidden_size * segment_size, hidden_size * 8),
+                    nn.LayerNorm(hidden_size * 8),
+                    nn.ReLU(),
+                    nn.Dropout(0.1),
+                    nn.Linear(hidden_size * 8, hidden_size * 4),
+                    nn.LayerNorm(hidden_size * 4),
+                    nn.ReLU(),
+                    nn.Dropout(0.1),
+                    nn.Linear(hidden_size * 4, hidden_size)
+                ) for _ in range(self.num_clips)
+            ])
+            
         elif head_type == "self_attn":
             self.head = SelfAttention(hidden_size, 4, hidden_size)
+
         elif self.head_type == "cross_attn":
             print(f'head type: cross attention')
             self.head = CrossAttention(hidden_size, num_heads=16)
@@ -189,28 +254,40 @@ class ChapterHead(nn.Module):
         batch_size = lang_emb.shape[0]
 
         # lang_out = self.lang_proj_head(lang_emb).unsqueeze(1)        # batch, 1, hidden_size
-        lang_out = self.lang_proj_head(lang_emb)
+        lang_out = self.lang_proj_heads[window_idx](lang_emb)
         lang_out = F.relu(lang_out)
 
         vision_emb = vision_emb.view(-1, self.vision_emb_size)
-        vision_out = self.vision_proj_head(vision_emb).view(batch_size, self.segment_size, self.hidden_size)  # batch, segment, hidden_size
+        vision_out = self.vision_proj_heads[window_idx](vision_emb).view(batch_size, self.segment_size, self.hidden_size)  # batch, segment, hidden_size
         vision_out = F.relu(vision_out)
 
         if self.head_type == "mlp":
             fusion_emb = torch.cat([vision_out, lang_out.unsqueeze(1)], dim=1)
             fusion_emb = fusion_emb.view(batch_size, -1)
-            fusion_emb = self.head(fusion_emb)
-        elif self.head_type == "attn":
+            fusion_emb = self.head[window_idx](fusion_emb)
+
+        elif self.head_type == "bilinear":
+            vision_flat = vision_out.view(batch_size, -1)  # [batch, segment_size * hidden_size]
+            fusion_emb = self.bilinear_layers[window_idx](lang_out, vision_flat)
+            fusion_emb = self.head[window_idx](fusion_emb)  # [batch, hidden_size * 4]
+
+        elif self.head_type == "multiplication":
+            expanded_lang = self.lang_expand_layers[window_idx](lang_out)
+            expanded_lang = expanded_lang.view(batch_size, self.segment_size, self.hidden_size)
+            mul_fusion = vision_out * expanded_lang
+            mul_fusion_flat = mul_fusion.view(batch_size, -1)
+            fusion_emb = self.head[window_idx](mul_fusion_flat)
+            
+        elif self.head_type == "self_attn":
             fusion_emb = torch.cat([vision_out, lang_out.unsqueeze(1)], dim=1)
             fusion_emb = self.head(fusion_emb) # 검수 필요
+
         elif self.head_type == "cross_attn":
             fusion_emb = self.head(lang_out, vision_out)  # [batch, hidden_size]
             out = self.output_proj(fusion_emb)
 
         return fusion_emb
         # return out
-
-
 
 class TwoStream(nn.Module):
     def __init__(self, lang_model, vision_model, lang_embed_size, vision_embed_size, segment_size, hidden_size, window_size):
@@ -277,16 +354,9 @@ class TwoStream(nn.Module):
             'attention_probs_dropout_prob': 0.1,
             'window_size': self.window_size
         })
-        self.window_attn = VideoChapterClassifier(window_config)
+        self.window_attn = StackedVideoChapterAttention(window_config)
 
     def configure_optimizers(self, train_config):
-        """
-        This long function is unfortunately doing something very simple and is being very defensive:
-        We are separating out all parameters of the model into two buckets: those that will experience
-        weight decay for regularization and those that won't (biases, and layernorm/embedding weights).
-        We are then returning the PyTorch optimizer object.
-        """
-
         # separate out all parameters to those that will and won't experience regularizing weight decay
         decay = set()
         no_decay = set()
@@ -307,7 +377,6 @@ class TwoStream(nn.Module):
                     # weights of whitelist modules will be weight decayed
                     decay.add(fpn)
 
-        # validate that we considered every parameter
         param_dict = {pn: p for pn, p in self.named_parameters()}
         inter_params = decay & no_decay
         union_params = decay | no_decay
@@ -315,7 +384,6 @@ class TwoStream(nn.Module):
         assert len(param_dict.keys() - union_params) == 0, "parameters %s were not separated into either decay/no_decay set!" \
                                                     % (str(param_dict.keys() - union_params), )
 
-        # create the pytorch optimizer object
         optim_groups = [
             {"params": [param_dict[pn] for pn in sorted(list(decay))], "weight_decay": train_config.weight_decay},
             {"params": [param_dict[pn] for pn in sorted(list(no_decay))], "weight_decay": 0.0},

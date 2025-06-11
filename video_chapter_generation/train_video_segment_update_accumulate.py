@@ -22,8 +22,8 @@ from data.youtube_dataset import YoutubeClipDataset, WindowClipDataset
 from data.infer_youtube_video_dataset import InferYoutubeClipDataset, InferWindowClipDataset
 from model.lang import bert_hugface
 from model.vision import resnet50_tsm, resnet50
-# from model.fusion import two_stream_update
 from model.fusion import two_stream_window
+# from model.fusion import two_stream_domain_specific
 from common_utils import set_random_seed
 from sklearn import metrics
 from memory_cache_utils import MemoryManager
@@ -161,7 +161,7 @@ class Trainer:
         for epoch in range(self.config.start_epoch+1, self.config.max_epochs+1):
             self.run_epoch('train', epoch, self.train_dataset)
 
-            if self.test_dataset is not None and ((epoch % 30 == 0) or (epoch == 15)):
+            if self.test_dataset is not None and ((epoch % 30 == 0) or (epoch == 15) or (epoch == 45)):
                 infer_test_result = self.run_epoch("infer_test", epoch, self.test_dataset)
                 test_result = infer_test_result
 
@@ -240,20 +240,17 @@ class Trainer:
 
                     # decay the learning rate based on our progress
                     if self.config.lr_decay:
-                        # self.tokens += (attention_mask > 0).sum()
+
                         if epoch < self.config.warmup_epochs:
-                            # linear warmup
                             lr_mult = max(epoch / self.config.warmup_epochs, 1e-2)
                         else:
                             if epoch < self.config.final_epochs:
                                 progress = epoch / self.config.final_epochs
                             else:
                                 progress = 1.0
-                            # cosine learning rate decay
+
                             if self.config.lr_decay_type == "cosine":
                                 lr_mult = max(0.001, 0.5 * (1.0 + math.cos(math.pi * progress)))
-
-                            # exponential learning rate decay
                             elif self.config.lr_decay_type == "exp":
                                 decay_progress_threshold = 1/5
                                 if progress < decay_progress_threshold:
@@ -270,8 +267,15 @@ class Trainer:
                         lr = self.config.learning_rate * lr_mult
                         for param_group in self.optimizer.param_groups:
                             param_group['lr'] = lr
+                        # for param_group in self.optimizer.param_groups:
+                        #     param_group['lr'] = param_group['initial_lr'] * lr_mult
                     else:
                         lr = self.config.learning_rate
+                        # for param_group in self.optimizer.param_groups:
+                        #     if 'initial_lr' in param_group:
+                        #         param_group['lr'] = param_group['initial_lr']
+                        #     else:
+                        #         param_group['lr'] = self.config.learning_rate
 
                     cpu_y = list(label.cpu().numpy())
                     scores = binary_prob[:, 1].detach().cpu().numpy()
@@ -295,7 +299,7 @@ class Trainer:
 
                     pbar.set_description(
                         f"epoch {epoch} iter {it}: train loss {loss.item():.5f}, "
-                        f"auc {auc:.5f}, m_ap {m_ap:.5f}, lr {lr:e}"
+                        f"auc {auc:.5f}, m_ap {m_ap:.5f}"
                     )
 
                 # else:
@@ -349,19 +353,20 @@ if __name__ == "__main__":
     parser.add_argument('--gpu', default=0, type=int)
     parser.add_argument('--data_mode', default="all", type=str, help="text (text only), image (image only) or all (multiple-model)")
     parser.add_argument('--model_type', default="two_stream", type=str, help="bert, r50tsm, two_stream")
-    parser.add_argument('--clip_frame_num', default=16, type=int)
+    parser.add_argument('--clip_frame_num', default=8, type=int)
     parser.add_argument('--epoch', default=300, type=int)
     parser.add_argument('--batch_size', default=4, type=int)
     parser.add_argument('--lr_decay_type', default="cosine", type=str)
-    parser.add_argument('--head_type', default="cross_attn", type=str, help="mlp, self_attn, cross_attn, only work on two_stream model")
-    parser.add_argument('--window_size', default=1, type=int)
+    parser.add_argument('--head_type', default="mlp", type=str, help="mlp, bilinear, self_attn, cross_attn, only work on two_stream model")
+    parser.add_argument('--window_size', default=2, type=int)
+    parser.add_argument('--gradient_accumulation_steps', default=4, type=int)
     args = parser.parse_args()
 
     set_random_seed.use_fix_random_seed()
     batch_size = args.batch_size
-    gradient_accumulation_steps=4
+    gradient_accumulation_steps=args.gradient_accumulation_steps
     clip_frame_num = args.clip_frame_num
-    num_workers = 4
+    num_workers = 16
     max_text_len = 100
     start_epoch = 0
     best_result = float('-inf')
@@ -370,11 +375,11 @@ if __name__ == "__main__":
     # lang_pretrain_ckpt_path = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/hugface_bert_pretrain/batch_{batch_size}_lr_decay_cosine_train_test_split/pretrain.pth"
     lang_pretrain_ckpt_path = f"./checkpoint/hugface_bert/pretrain_2880.pth"
     # ckpt_path = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/{args.data_mode}/{args.model_type}_validation/batch_{batch_size}_head_type_{args.head_type}_clip_frame_num_{args.clip_frame_num}/checkpoint.pth"
-    ckpt_path = f"./checkpoint/chapter_localization/cross16_window16/lr_2e-6"
-    img_dir = "../video_chapter_youtube_dataset/youtube_video_frame_dataset"
+    ckpt_path = f"./checkpoint/chapter_localization/window_attnX6/clip{clip_frame_num}_w{args.window_size}"
+    img_dir = "./youtube_video_frame_dataset"
     data_file = "./dataset/all_in_one_with_subtitle_final.csv"
     subtitle_dir = "../video_chapter_youtube_dataset/dataset"
-    test_clips_json = f"./dataset/dataset_fps1/validation_clips_clip_frame_num_16.json"
+    test_clips_json = f"./dataset/validation_clips_clip_frame_num_{clip_frame_num}.json"
 
     train_vid_file = "./dataset/final_train.txt"
     test_vid_file = "./dataset/final_validation.txt"
@@ -382,99 +387,95 @@ if __name__ == "__main__":
     tensorboard_log = ckpt_path
     tensorboard_writer = SummaryWriter(tensorboard_log)
 
-    try:
-        # init model
-        # lang model
-        tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
-        lang_model = bert_hugface.BertHugface(pretrain_stage=False)
-        if os.path.exists(lang_pretrain_ckpt_path):
-            # lang_model.load_state_dict(torch.load(lang_pretrain_ckpt_path))        
-            checkpoint = torch.load(lang_pretrain_ckpt_path)
-            lang_model.load_state_dict(checkpoint["model_state_dict"])
+    # init model
+    # lang model
+    tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+    lang_model = bert_hugface.BertHugface(pretrain_stage=False)
+    if os.path.exists(lang_pretrain_ckpt_path):
+        # lang_model.load_state_dict(torch.load(lang_pretrain_ckpt_path))        
+        checkpoint = torch.load(lang_pretrain_ckpt_path)
+        lang_model.load_state_dict(checkpoint["model_state_dict"])
 
-        # vision model
-        if args.data_mode == "image":
-            if args.model_type == "r50tsm":
-                vision_model = resnet50_tsm.Resnet50TSM(segments_size=clip_frame_num, shift_div=8, pretrain_stage=False)
-            elif args.model_type == "r50":
-                vision_model = resnet50.Resnet50(segments_size=clip_frame_num, pretrain_stage=False)
-            else:
-                raise RuntimeError(f"Unknown model_type {args.model_type}")
-        else:
+    # vision model
+    if args.data_mode == "image":
+        if args.model_type == "r50tsm":
             vision_model = resnet50_tsm.Resnet50TSM(segments_size=clip_frame_num, shift_div=8, pretrain_stage=False)
-        
-        if os.path.exists(vision_pretrain_ckpt_path):
-            vision_model.load_state_dict(torch.load(vision_pretrain_ckpt_path))
-
-
-        # two stream model
-        if args.data_mode == "text":
-            model = lang_model
-            model.build_chapter_head()
-            model = model.to(args.gpu)
-        elif args.data_mode == "image":
-            model = vision_model
-            model.build_chapter_head()
-            model = model.to(args.gpu)
-            model = torch.nn.DataParallel(model, device_ids=[0,1])
-        elif args.data_mode == "all":
-            lang_base_model = lang_model.base_model
-            vision_base_model = vision_model.base_model
-            hidden_size = 128
-            # model = two_stream_update.TwoStream(
-            #     lang_base_model,
-            #     vision_base_model,
-            #     lang_model.embed_size,
-            #     vision_model.feature_dim,
-            #     clip_frame_num,
-            #     hidden_size)
-            model = two_stream_window.TwoStream(
-                lang_base_model,
-                vision_base_model,
-                lang_model.embed_size,
-                vision_model.feature_dim,
-                clip_frame_num,
-                hidden_size,
-                args.window_size)
-            model.build_chapter_head(output_size=2, head_type=args.head_type)
-            model = model.to(args.gpu)
-            model = torch.nn.DataParallel(model, device_ids=[0,1])
+        elif args.model_type == "r50":
+            vision_model = resnet50.Resnet50(segments_size=clip_frame_num, pretrain_stage=False)
         else:
-            raise RuntimeError(f"Unknown data mode {args.data_mode}")
-        
-        # load pretrained model
-        # if os.path.exists(ckpt_path):
-        #     checkpoint = torch.load(ckpt_path)
-        #     start_epoch = checkpoint["epoch"]
-        #     best_result = checkpoint["best_result"]
-        #     model.load_state_dict(checkpoint["model_state_dict"])
+            raise RuntimeError(f"Unknown model_type {args.model_type}")
+    else:
+        vision_model = resnet50_tsm.Resnet50TSM(segments_size=clip_frame_num, shift_div=8, pretrain_stage=False)
+    
+    if os.path.exists(vision_pretrain_ckpt_path):
+        vision_model.load_state_dict(torch.load(vision_pretrain_ckpt_path))
 
 
-        # dataset
-        train_vision_preprocess = transforms.Compose([
-            transforms.RandomApply([transforms.ColorJitter()], p=0.5),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-        ])
+    # two stream model
+    if args.data_mode == "text":
+        model = lang_model
+        model.build_chapter_head()
+        model = model.to(args.gpu)
+    elif args.data_mode == "image":
+        model = vision_model
+        model.build_chapter_head()
+        model = model.to(args.gpu)
+        model = torch.nn.DataParallel(model, device_ids=[0,1])
+    elif args.data_mode == "all":
+        lang_base_model = lang_model.base_model
+        vision_base_model = vision_model.base_model
+        hidden_size = 128
+        # model = two_stream_update.TwoStream(
+        #     lang_base_model,
+        #     vision_base_model,
+        #     lang_model.embed_size,
+        #     vision_model.feature_dim,
+        #     clip_frame_num,
+        #     hidden_size)
+        model = two_stream_window.TwoStream(
+            lang_base_model,
+            vision_base_model,
+            lang_model.embed_size,
+            vision_model.feature_dim,
+            clip_frame_num,
+            hidden_size,
+            args.window_size)
+        model.build_chapter_head(output_size=2, head_type=args.head_type)
+        model = model.to(args.gpu)
+        model = torch.nn.DataParallel(model, device_ids=[0,1])
+    else:
+        raise RuntimeError(f"Unknown data mode {args.data_mode}")
+    
+    # load pretrained model
+    # if os.path.exists(ckpt_path):
+    #     checkpoint = torch.load(ckpt_path)
+    #     start_epoch = checkpoint["epoch"]
+    #     best_result = checkpoint["best_result"]
+    #     model.load_state_dict(checkpoint["model_state_dict"])
 
-        test_vision_preprocess = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-        ])
-        
-        # train_dataset = YoutubeClipDataset(img_dir, data_file, train_vid_file, tokenizer, clip_frame_num, max_text_len, mode=args.data_mode, transform=train_vision_preprocess)
-        # test_dataset = InferYoutubeClipDataset(img_dir, test_clips_json, tokenizer, clip_frame_num, max_text_len, mode=args.data_mode, transform=test_vision_preprocess)
-        train_dataset = WindowClipDataset(img_dir, data_file, train_vid_file, tokenizer, clip_frame_num, max_text_len, window_size=args.window_size, mode=args.data_mode, transform=train_vision_preprocess, subtitle_dir=subtitle_dir)
-        test_dataset = InferWindowClipDataset(img_dir, test_clips_json, tokenizer, clip_frame_num, max_text_len, window_size=args.window_size, mode=args.data_mode, transform=test_vision_preprocess)
 
-        # initialize a trainer instance and kick off training
-        tconf = TrainerConfig(data_mode=args.data_mode, max_epochs=args.epoch,
-                            start_epoch=start_epoch, best_result=best_result, batch_size=batch_size, gradient_accumulation_steps=gradient_accumulation_steps, learning_rate=2e-6, block_size=max_text_len,
-                            lr_decay_type=args.lr_decay_type, lr_decay=True, warmup_epochs=args.epoch//100, final_epochs=args.epoch//100*90, 
-                            num_workers=num_workers, ckpt_path=ckpt_path, tensorboard_writer=tensorboard_writer)
-        trainer = Trainer(model, train_dataset, test_dataset, tconf)
-        trainer.device = args.gpu
-        trainer.train()
+    # dataset
+    train_vision_preprocess = transforms.Compose([
+        transforms.RandomApply([transforms.ColorJitter()], p=0.5),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    ])
 
-    finally:
-        trainer.memory_manager.shutdown()
+    test_vision_preprocess = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    ])
+    
+    # train_dataset = YoutubeClipDataset(img_dir, data_file, train_vid_file, tokenizer, clip_frame_num, max_text_len, mode=args.data_mode, transform=train_vision_preprocess)
+    # test_dataset = InferYoutubeClipDataset(img_dir, test_clips_json, tokenizer, clip_frame_num, max_text_len, mode=args.data_mode, transform=test_vision_preprocess)
+    train_dataset = WindowClipDataset(img_dir, data_file, train_vid_file, tokenizer, clip_frame_num, max_text_len, window_size=args.window_size, mode=args.data_mode, transform=train_vision_preprocess, subtitle_dir=subtitle_dir)
+    test_dataset = InferWindowClipDataset(img_dir, test_clips_json, tokenizer, clip_frame_num, max_text_len, window_size=args.window_size, mode=args.data_mode, transform=test_vision_preprocess)
+
+    # initialize a trainer instance and kick off training
+    tconf = TrainerConfig(data_mode=args.data_mode, max_epochs=args.epoch,
+                        start_epoch=start_epoch, best_result=best_result, batch_size=batch_size, gradient_accumulation_steps=gradient_accumulation_steps, learning_rate=1e-5, block_size=max_text_len,
+                        lr_decay_type=args.lr_decay_type, lr_decay=True, warmup_epochs=args.epoch//100, final_epochs=args.epoch//100*90, 
+                        num_workers=num_workers, ckpt_path=ckpt_path, tensorboard_writer=tensorboard_writer)
+    trainer = Trainer(model, train_dataset, test_dataset, tconf)
+    trainer.device = args.gpu
+    trainer.train()

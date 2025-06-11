@@ -69,10 +69,10 @@ class Trainer:
             # DataParallel wrappers keep raw model object in .module attribute
             raw_model = self.model.module if hasattr(self.model, "module") else self.model
 
-            checkpoint_dir = os.path.join(self.config.ckpt_dir, f"checkpoint-{epoch}")
+            checkpoint_dir = os.path.join(self.config.ckpt_dir)
             os.makedirs(checkpoint_dir, exist_ok=True)
 
-            checkpoint_path = os.path.join(checkpoint_dir, f"checkpoint_{epoch}.pth")
+            checkpoint_path = os.path.join(checkpoint_dir, f"checkpoint_{epoch}_{best_result:.4f}.pth")
 
             checkpoint_dirs = []
             for d in os.listdir(self.config.ckpt_dir):
@@ -122,7 +122,7 @@ class Trainer:
         best_result = self.config.best_result
 
         test_result = float('-inf')
-        for epoch in range(self.config.start_epoch, self.config.max_epochs):
+        for epoch in range(self.config.start_epoch+1, self.config.max_epochs+1):
             train_acc = self.run_epoch('train', epoch)
             if self.test_dataset is not None and epoch % 20 == 0:
                 test_result = self.run_epoch('test', epoch)
@@ -218,7 +218,7 @@ class Trainer:
                 self.config.tensorboard_writer.add_scalar('Train/loss', loss.item(), n_iter)
                 self.config.tensorboard_writer.add_scalar('Train/acc', acc, n_iter)
 
-                pbar.set_description(f"epoch {epoch+1} iter {it}: train loss {loss.item():.5f}, acc {acc:.5f}. lr {lr:e}")
+                pbar.set_description(f"epoch {epoch} iter {it}: train loss {loss.item():.5f}, acc {acc:.5f}. lr {lr:e}")
 
         if not is_train:
             test_loss = float(np.mean(losses))
@@ -237,19 +237,20 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description='video chapter title generation model')
     parser.add_argument('--gpu', default=0, type=int)
-    parser.add_argument('--epoch', default=2700, type=int)
-    parser.add_argument('--batch_size', default=16, type=int)
+    parser.add_argument('--epoch', default=3000, type=int)
+    parser.add_argument('--batch_size', default=4, type=int)
     parser.add_argument('--lr_decay_type', default="cosine", type=str)
     parser.add_argument('--model_type', default="pegasus", type=str)
     args = parser.parse_args()
 
-    ckpt_dir = f"/home/work/capstone/Video-Chapter-Generation/video_chapter_generation/checkpoint/chapter_title_gen/{args.model_type}_batch_{args.batch_size}"
-    data_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/all_in_one_with_subtitle_final.csv"
+    ckpt_dir = f"./checkpoint/chapter_title_gen/{args.model_type}_text_batch_{args.batch_size}"
+    data_file = "./dataset/all_in_one_with_subtitle_final.csv"
+    subtitle_dir = "../video_chapter_youtube_dataset/dataset"
     # train_vid_file = "/opt/tiger/video_chapter_youtube_dataset/dataset/train.txt"
     # test_vid_file = "/opt/tiger/video_chapter_youtube_dataset/dataset/test.txt"
-    train_vid_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/final_train.txt"
-    test_vid_file = "/home/work/capstone/Video-Chapter-Generation/video_chapter_youtube_dataset/dataset/final_validation.txt"
-    tensorboard_log = os.path.dirname(ckpt_dir)
+    train_vid_file = "./dataset/final_train.txt"
+    test_vid_file = "./dataset/final_validation.txt"
+    tensorboard_log = ckpt_dir
     tensorboard_writer = SummaryWriter(tensorboard_log)
 
     set_random_seed.use_fix_random_seed()
@@ -288,8 +289,8 @@ if __name__ == "__main__":
     model = torch.nn.DataParallel(model, device_ids=[0, 1])
     
     # dataset
-    train_dataset = YoutubeChapterTitleDataset(data_file, train_vid_file, tokenizer, max_text_len, chapter_title_text_len)
-    test_dataset = YoutubeChapterTitleDataset(data_file, test_vid_file, tokenizer, max_text_len, chapter_title_text_len)
+    train_dataset = YoutubeChapterTitleDataset(data_file, train_vid_file, tokenizer, max_text_len, chapter_title_text_len, subtitle_dir=subtitle_dir)
+    test_dataset = YoutubeChapterTitleDataset(data_file, test_vid_file, tokenizer, max_text_len, chapter_title_text_len, subtitle_dir=subtitle_dir)
     
     # initialize a trainer instance and kick off training
     tconf = TrainerConfig(max_epochs=args.epoch, start_epoch=start_epoch, best_result=best_result, batch_size=batch_size, learning_rate=1e-5, block_size=max_text_len,

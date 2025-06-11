@@ -296,11 +296,11 @@ class ChapterHead(nn.Module):
         
         # Final classifier
         self.classifier = nn.Sequential(
-            nn.Linear(hidden_size, hidden_size),
-            nn.LayerNorm(hidden_size),
+            nn.Linear(hidden_size*2, hidden_size*2),
+            nn.LayerNorm(hidden_size*2),
             nn.ReLU(),
             nn.Dropout(0.1),
-            nn.Linear(hidden_size, hidden_size),
+            nn.Linear(hidden_size*2, hidden_size),
             nn.LayerNorm(hidden_size),
             nn.ReLU(),
             nn.Dropout(0.1),
@@ -358,8 +358,11 @@ class ChapterHead(nn.Module):
         vision_center = vision_attended[:, center_idx]  # [batch, hidden_size]
         
         # Apply cross-attention between language and vision
-        fusion_emb = self.cross_attn(lang_center, vision_center)  # [batch, hidden_size]
+        # fusion_emb = self.cross_attn(lang_center, vision_center)  # [batch, hidden_size]
         
+        # concat
+        fusion_emb = torch.cat([lang_center, vision_center], dim=1)
+
         # Classify
         logits = self.classifier(fusion_emb)  # [batch, output_size]
         
@@ -395,37 +398,48 @@ class TwoStream(nn.Module):
         )
 
     def configure_optimizers(self, train_config):
-        """
-        Separates parameters into weight decay and no weight decay groups
-        """
-        decay = set()
-        no_decay = set()
-        for mn, m in self.named_modules():
-            for pn, p in m.named_parameters():
-                fpn = '%s.%s' % (mn, pn) if mn else pn  # full param name
-
-                if pn.endswith('bias'):
-                    no_decay.add(fpn)
-                elif "LayerNorm" in fpn:
-                    no_decay.add(fpn)
-                elif "bn" in fpn:
-                    no_decay.add(fpn)
-                elif "emb" in fpn:
-                    no_decay.add(fpn)
-                else:
-                    decay.add(fpn)
 
         param_dict = {pn: p for pn, p in self.named_parameters()}
-        inter_params = decay & no_decay
-        union_params = decay | no_decay
-        assert len(inter_params) == 0, "parameters %s made it into both decay/no_decay sets!" % (str(inter_params), )
-        assert len(param_dict.keys() - union_params) == 0, "parameters %s were not separated into either decay/no_decay set!" \
-                                                    % (str(param_dict.keys() - union_params), )
+        
+        bert_params = set()
+        resnet_params = set()
+        other_params = set()
+        
+        for pn in param_dict:
+            if "lang_model" in pn or "bert" in pn.lower():
+                bert_params.add(pn)
+            elif "vision_model" in pn or "resnet" in pn.lower():
+                resnet_params.add(pn)
+            else:
+                other_params.add(pn)
+        
+        bert_decay = {pn for pn in bert_params if not pn.endswith('bias') and "LayerNorm" not in pn and "emb" not in pn}
+        bert_no_decay = bert_params - bert_decay
+        
+        resnet_decay = {pn for pn in resnet_params if not pn.endswith('bias') and "bn" not in pn}
+        resnet_no_decay = resnet_params - resnet_decay
+        
+        other_decay = {pn for pn in other_params if not pn.endswith('bias') and "LayerNorm" not in pn and "bn" not in pn}
+        other_no_decay = other_params - other_decay
+        
+        all_params = bert_decay | bert_no_decay | resnet_decay | resnet_no_decay | other_decay | other_no_decay
+        assert len(param_dict.keys() - all_params) == 0, "일부 파라미터가 그룹에 할당되지 않았습니다"
 
         optim_groups = [
-            {"params": [param_dict[pn] for pn in sorted(list(decay))], "weight_decay": train_config.weight_decay},
-            {"params": [param_dict[pn] for pn in sorted(list(no_decay))], "weight_decay": 0.0},
+            {"params": [param_dict[pn] for pn in sorted(list(bert_decay))], 
+            "weight_decay": train_config.weight_decay, "lr": train_config.learning_rate, "initial_lr": train_config.learning_rate},
+            {"params": [param_dict[pn] for pn in sorted(list(bert_no_decay))], 
+            "weight_decay": 0.0, "lr": train_config.learning_rate, "initial_lr": train_config.learning_rate},
+            {"params": [param_dict[pn] for pn in sorted(list(resnet_decay))], 
+            "weight_decay": train_config.weight_decay, "lr": train_config.learning_rate, "initial_lr": train_config.learning_rate},
+            {"params": [param_dict[pn] for pn in sorted(list(resnet_no_decay))], 
+            "weight_decay": 0.0, "lr": train_config.learning_rate, "initial_lr": train_config.learning_rate},
+            {"params": [param_dict[pn] for pn in sorted(list(other_decay))], 
+            "weight_decay": train_config.weight_decay, "lr": train_config.learning_rate * 2, "initial_lr": train_config.learning_rate * 2},
+            {"params": [param_dict[pn] for pn in sorted(list(other_no_decay))], 
+            "weight_decay": 0.0, "lr": train_config.learning_rate * 2, "initial_lr": train_config.learning_rate * 2},
         ]
+
         optimizer = torch.optim.AdamW(optim_groups, lr=train_config.learning_rate, betas=train_config.betas)
         return optimizer
 

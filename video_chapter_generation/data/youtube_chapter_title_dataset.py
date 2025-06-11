@@ -21,7 +21,7 @@ from transformers import PegasusTokenizer
 
 # sample a chapter for each video
 class YoutubeChapterTitleDataset:
-    def __init__(self, data_file, vid_file, tokenizer, max_text_len=512, chapter_title_text_len=30, transform=None, target_transform=None):
+    def __init__(self, data_file, vid_file, tokenizer, max_text_len=512, chapter_title_text_len=30, transform=None, target_transform=None, subtitle_dir=None):
         self.tokenizer = tokenizer
         self.max_text_len = max_text_len
         self.chapter_title_text_len = chapter_title_text_len
@@ -41,7 +41,8 @@ class YoutubeChapterTitleDataset:
         self.vids = vids
 
         # get asr file
-        asr_file_list = glob.glob(os.path.dirname(data_file) + "/*/subtitle_*.json")
+        subtitle_path = os.path.dirname(data_file) if subtitle_dir is None else subtitle_dir
+        asr_file_list = glob.glob(subtitle_path + "/*/subtitle_*.json")
         self.vid2asr_files = dict()
         for asr_file in asr_file_list:
             filename = os.path.basename(asr_file)

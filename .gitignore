@@ -28,5 +28,6 @@ video_chapter_youtube_dataset/dataset_fps4/
 video_chapter_youtube_dataset/vids/
 video_chapter_youtube_dataset/test_results/
 video_chapter_youtube_dataset/dataset_stats_result/
+video_chapter_generation/youtube_video_frame_dataset/
 video_chapter_youtube_dataset/youtube_video_frame_dataset/
 video_chapter_youtube_dataset/youtube_video_frame_dataset_fps4/
